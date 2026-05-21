@@ -1,0 +1,21 @@
+[Unit]
+Description=CaddyLatch — on-demand Caddy edge access controller
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=/usr/local/sbin/caddylatch
+Restart=on-failure
+RestartSec=10
+User=root
+Group=root
+
+# Hardening
+ProtectSystem=strict
+ReadWritePaths=/var/lib/caddylatch /var/log/caddylatch /etc/caddy/filter-caddylatch.caddy
+ProtectHome=yes
+PrivateTmp=yes
+
+[Install]
+WantedBy=multi-user.target

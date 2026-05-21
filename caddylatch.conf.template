@@ -1,0 +1,63 @@
+# CaddyLatch configuration
+# Managed by install.sh — manual edits are preserved across upgrades.
+
+# --- Status Endpoint ---
+# IP and port the status endpoint listens on.
+# Default: Tailscale IP, accessible only from your tailnet.
+# Set to 127.0.0.1 if fronting with Caddy instead.
+listen_host=CHANGE_ME
+listen_port=8450
+
+# --- WireGuard ---
+# WireGuard interface managed by CaddyLatch
+wg_interface=wg0
+
+# --- Caddy Integration ---
+# Path to the dynamic filter file CaddyLatch writes
+caddy_filter_file=/etc/caddy/filter-caddylatch.caddy
+
+# GeoIP database path (MaxMind GeoLite2-Country)
+geoip_db_path=/var/lib/GeoIP/GeoLite2-Country.mmdb
+
+# Command to reload Caddy after filter changes
+caddy_reload_cmd=systemctl reload caddy
+
+# WireGuard tunnel peer IP to exempt from geo filtering
+# (the home proxy connects from this IP and has no GeoIP classification)
+wg_peer_ip=10.100.0.1
+
+# --- Timer ---
+# Default tunnel duration in minutes (used if no duration specified)
+default_duration_minutes=120
+
+# Maximum allowed tunnel duration in minutes
+max_duration_minutes=480
+
+# Interval in minutes for "tunnel still open" reminder notifications
+# Set to 0 to disable reminders
+reminder_interval_minutes=120
+
+# --- Notifications ---
+# ntfy server URL (leave empty to disable)
+ntfy_url=
+
+# ntfy topic for tunnel state changes
+ntfy_topic=caddylatch
+
+# ntfy priority for normal state changes (1-5)
+ntfy_priority=3
+
+# ntfy priority for backstop/alert events (1-5)
+ntfy_alert_priority=5
+
+# --- Healthchecks ---
+# Healthchecks.io ping URL for dead man's switch (leave empty to disable)
+healthchecks_url=
+
+# --- State Persistence ---
+# Path to the persisted state file
+state_file=/var/lib/caddylatch/state.json
+
+# --- Logging ---
+log_file=/var/log/caddylatch/caddylatch.log
+log_level=INFO

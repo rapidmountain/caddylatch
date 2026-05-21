@@ -1,0 +1,883 @@
+#!/usr/bin/env python3
+"""
+CaddyLatch — on-demand Caddy edge access controller.
+
+Controls a WireGuard tunnel and Caddy's geo/IP filtering to provide
+time-boxed, scoped remote access through a Caddy reverse proxy edge.
+
+Default state: locked. WireGuard is down, Caddy blocks all traffic.
+When enabled: WireGuard comes up, Caddy allows traffic from specified
+countries and IPs only, with a self-destruct timer.
+
+Architecture:
+  - Single agent on the edge VPS (this script)
+  - Status endpoint on a trusted network (e.g., Tailscale)
+  - Home-side WireGuard stays always-on; this agent is the sole gatekeeper
+  - Web app (separate) talks to the status endpoint to toggle state
+
+Designed for:
+  - Caddy with caddy-maxmind-geolocation plugin
+  - WireGuard managed by wg-quick systemd units
+  - MaxMind GeoLite2-Country database
+"""
+
+import json
+import logging
+import os
+import subprocess
+import sys
+import threading
+import time
+from datetime import datetime, timezone
+from http.server import HTTPServer, BaseHTTPRequestHandler
+from pathlib import Path
+
+__version__ = "0.1.0"
+
+# ---------------------------------------------------------------------------
+# Configuration
+# ---------------------------------------------------------------------------
+
+DEFAULT_CONFIG = {
+    "listen_host": "127.0.0.1",
+    "listen_port": "8450",
+    "wg_interface": "wg0",
+    "caddy_filter_file": "/etc/caddy/filter-caddylatch.caddy",
+    "geoip_db_path": "/var/lib/GeoIP/GeoLite2-Country.mmdb",
+    "caddy_reload_cmd": "systemctl reload caddy",
+    "wg_peer_ip": "10.100.0.1",
+    "default_duration_minutes": "120",
+    "max_duration_minutes": "480",
+    "reminder_interval_minutes": "120",
+    "ntfy_url": "",
+    "ntfy_topic": "caddylatch",
+    "ntfy_priority": "3",
+    "ntfy_alert_priority": "5",
+    "healthchecks_url": "",
+    "state_file": "/var/lib/caddylatch/state.json",
+    "log_file": "/var/log/caddylatch/caddylatch.log",
+    "log_level": "INFO",
+}
+
+CONFIG_PATH = "/etc/caddylatch/caddylatch.conf"
+
+
+def load_config(path: str = CONFIG_PATH) -> dict:
+    """Load key=value config file, falling back to defaults for missing keys."""
+    cfg = dict(DEFAULT_CONFIG)
+    try:
+        with open(path) as f:
+            for line in f:
+                line = line.strip()
+                if not line or line.startswith("#"):
+                    continue
+                if "=" in line:
+                    key, _, value = line.partition("=")
+                    cfg[key.strip()] = value.strip()
+    except FileNotFoundError:
+        logging.warning(f"Config not found at {path}, using defaults")
+    return cfg
+
+
+# ---------------------------------------------------------------------------
+# Logging
+# ---------------------------------------------------------------------------
+
+def setup_logging(cfg: dict) -> None:
+    log_file = cfg["log_file"]
+    log_level = getattr(logging, cfg["log_level"].upper(), logging.INFO)
+
+    os.makedirs(os.path.dirname(log_file), exist_ok=True)
+
+    logging.basicConfig(
+        level=log_level,
+        format="%(asctime)s [%(levelname)s] %(message)s",
+        datefmt="%Y-%m-%d %H:%M:%S",
+        handlers=[
+            logging.FileHandler(log_file),
+            logging.StreamHandler(sys.stdout),
+        ],
+    )
+
+
+# ---------------------------------------------------------------------------
+# State management
+# ---------------------------------------------------------------------------
+
+DEFAULT_STATE = {
+    "enabled": False,
+    "allowed_ips": [],
+    "allowed_countries": [],
+    "expires": None,
+    "updated_at": None,
+    "enabled_at": None,
+    "disabled_reason": None,
+}
+
+
+class LatchState:
+    """Thread-safe state manager with persistence."""
+
+    def __init__(self, state_file: str):
+        self._state_file = Path(state_file)
+        self._lock = threading.Lock()
+        self._state = self._load()
+
+    def _load(self) -> dict:
+        try:
+            with open(self._state_file) as f:
+                stored = json.load(f)
+                merged = dict(DEFAULT_STATE)
+                merged.update(stored)
+                return merged
+        except (FileNotFoundError, json.JSONDecodeError):
+            return dict(DEFAULT_STATE)
+
+    def _save(self) -> None:
+        self._state_file.parent.mkdir(parents=True, exist_ok=True)
+        tmp = self._state_file.with_suffix(".tmp")
+        with open(tmp, "w") as f:
+            json.dump(self._state, f, indent=2)
+        tmp.rename(self._state_file)
+
+    def get(self) -> dict:
+        with self._lock:
+            return dict(self._state)
+
+    def update(self, new_state: dict) -> dict:
+        with self._lock:
+            self._state.update(new_state)
+            self._state["updated_at"] = datetime.now(timezone.utc).isoformat()
+            self._save()
+            return dict(self._state)
+
+    @property
+    def enabled(self) -> bool:
+        with self._lock:
+            return self._state.get("enabled", False)
+
+    @property
+    def expires(self) -> datetime | None:
+        with self._lock:
+            exp = self._state.get("expires")
+            if exp:
+                return datetime.fromisoformat(exp)
+            return None
+
+
+# ---------------------------------------------------------------------------
+# WireGuard control
+# ---------------------------------------------------------------------------
+
+def wg_is_up(interface: str) -> bool:
+    """Check if WireGuard interface is active."""
+    result = subprocess.run(
+        ["ip", "link", "show", interface],
+        capture_output=True, text=True,
+    )
+    return "UP" in result.stdout if result.returncode == 0 else False
+
+
+def wg_up(interface: str) -> bool:
+    """Bring WireGuard interface up and enable on boot."""
+    logging.info(f"Starting WireGuard interface {interface}")
+    result = subprocess.run(
+        ["systemctl", "start", f"wg-quick@{interface}"],
+        capture_output=True, text=True,
+    )
+    if result.returncode != 0:
+        logging.error(f"Failed to start WireGuard: {result.stderr}")
+        return False
+
+    subprocess.run(
+        ["systemctl", "enable", f"wg-quick@{interface}"],
+        capture_output=True, text=True,
+    )
+    return True
+
+
+def wg_down(interface: str) -> bool:
+    """Bring WireGuard interface down and disable on boot."""
+    logging.info(f"Stopping WireGuard interface {interface}")
+    result = subprocess.run(
+        ["systemctl", "stop", f"wg-quick@{interface}"],
+        capture_output=True, text=True,
+    )
+    if result.returncode != 0:
+        logging.error(f"Failed to stop WireGuard: {result.stderr}")
+        return False
+
+    subprocess.run(
+        ["systemctl", "disable", f"wg-quick@{interface}"],
+        capture_output=True, text=True,
+    )
+    return True
+
+
+# ---------------------------------------------------------------------------
+# Caddy filter management
+# ---------------------------------------------------------------------------
+
+FILTER_HEADER = """\
+# Managed by CaddyLatch — do not edit manually.
+# This file is regenerated on every state change.
+# Manual edits will be overwritten.
+#
+# To modify allowed countries or IPs, use the CaddyLatch API.
+"""
+
+
+def write_filter_locked(cfg: dict) -> None:
+    """Write a geo_filter snippet that blocks ALL traffic (latch closed)."""
+    content = FILTER_HEADER + """
+# STATE: LOCKED — all traffic blocked
+(geo_filter) {
+    @geo_blocked {
+        not remote_ip %(wg_peer_ip)s/32
+    }
+    handle @geo_blocked {
+        abort
+    }
+}
+""" % {"wg_peer_ip": cfg["wg_peer_ip"]}
+
+    Path(cfg["caddy_filter_file"]).write_text(content)
+    logging.info("Wrote locked filter (all traffic blocked)")
+
+
+def write_filter_open(cfg: dict, countries: list[str], ips: list[str]) -> None:
+    """Write a geo_filter snippet that allows specified countries and IPs."""
+    country_list = " ".join(c.upper() for c in countries) if countries else ""
+
+    # Build the matcher conditions
+    # Traffic must match BOTH an allowed country AND an allowed IP
+    # Exception: WG peer IP is always exempt (proxy connects from there)
+
+    # If both countries and IPs are specified: must match both
+    # If only countries: country match is sufficient
+    # If only IPs: IP match is sufficient
+    ip_lines = ""
+    if ips:
+        ip_list = " ".join(ips)
+        ip_lines = f"""
+        not remote_ip {ip_list}"""
+
+    if countries and ips:
+        # Must match both: blocked if NOT (in allowed country AND in allowed IP)
+        # Using De Morgan's: blocked if (not in country) OR (not in IP)
+        # But we want AND, so we need a different approach.
+        # Caddy CEL or nested matchers aren't straightforward, so we use
+        # two separate checks: first geo, then IP within the geo-allowed.
+        #
+        # Approach: Use named matchers with route for sequential evaluation.
+        content = FILTER_HEADER + """
+# STATE: OPEN — filtered access
+# Required: matching country AND matching IP
+(geo_filter) {{
+    @geo_blocked {{
+        not maxmind_geolocation {{
+            db_path {geoip_db}
+            allow_countries {countries}
+        }}
+        not remote_ip {wg_peer_ip}/32
+    }}
+    handle @geo_blocked {{
+        abort
+    }}
+
+    @ip_blocked {{
+        not remote_ip {ips} {wg_peer_ip}/32
+    }}
+    handle @ip_blocked {{
+        abort
+    }}
+}}
+""".format(
+            geoip_db=cfg["geoip_db_path"],
+            countries=country_list,
+            ips=" ".join(ips),
+            wg_peer_ip=cfg["wg_peer_ip"],
+        )
+    elif countries:
+        # Countries only — no IP restriction
+        content = FILTER_HEADER + """
+# STATE: OPEN — geo-filtered access
+# Required: matching country
+(geo_filter) {{
+    @geo_blocked {{
+        not maxmind_geolocation {{
+            db_path {geoip_db}
+            allow_countries {countries}
+        }}
+        not remote_ip {wg_peer_ip}/32
+    }}
+    handle @geo_blocked {{
+        abort
+    }}
+}}
+""".format(
+            geoip_db=cfg["geoip_db_path"],
+            countries=country_list,
+            wg_peer_ip=cfg["wg_peer_ip"],
+        )
+    elif ips:
+        # IPs only — no geo restriction
+        content = FILTER_HEADER + """
+# STATE: OPEN — IP-filtered access
+# Required: matching IP
+(geo_filter) {{
+    @geo_blocked {{
+        not remote_ip {ips} {wg_peer_ip}/32
+    }}
+    handle @geo_blocked {{
+        abort
+    }}
+}}
+""".format(
+            ips=" ".join(ips),
+            wg_peer_ip=cfg["wg_peer_ip"],
+        )
+    else:
+        # No countries or IPs specified — this shouldn't happen, but lock down
+        write_filter_locked(cfg)
+        return
+
+    Path(cfg["caddy_filter_file"]).write_text(content)
+    logging.info(f"Wrote open filter — countries={countries}, ips={ips}")
+
+
+def reload_caddy(cmd: str) -> bool:
+    """Reload Caddy to pick up filter changes."""
+    logging.info("Reloading Caddy")
+    result = subprocess.run(cmd.split(), capture_output=True, text=True)
+    if result.returncode != 0:
+        logging.error(f"Caddy reload failed: {result.stderr}")
+        return False
+    return True
+
+
+# ---------------------------------------------------------------------------
+# Notifications
+# ---------------------------------------------------------------------------
+
+def send_ntfy(cfg: dict, title: str, message: str, priority: int | None = None) -> None:
+    """Send notification via ntfy."""
+    if not cfg.get("ntfy_url") or not cfg.get("ntfy_topic"):
+        return
+
+    url = f"{cfg['ntfy_url']}/{cfg['ntfy_topic']}"
+    prio = str(priority or cfg["ntfy_priority"])
+
+    try:
+        import urllib.request
+
+        req = urllib.request.Request(
+            url,
+            data=message.encode("utf-8"),
+            headers={
+                "Title": title,
+                "Priority": prio,
+                "Tags": "lock",
+            },
+        )
+        urllib.request.urlopen(req, timeout=10)
+        logging.info(f"ntfy sent: {title}")
+    except Exception as e:
+        logging.error(f"ntfy failed: {e}")
+
+
+def ping_healthchecks(cfg: dict, status: str = "") -> None:
+    """Ping Healthchecks.io dead man's switch."""
+    url = cfg.get("healthchecks_url")
+    if not url:
+        return
+
+    ping_url = f"{url}/{status}" if status else url
+    try:
+        import urllib.request
+
+        urllib.request.urlopen(ping_url, timeout=10)
+    except Exception as e:
+        logging.error(f"Healthchecks ping failed: {e}")
+
+
+# ---------------------------------------------------------------------------
+# Latch controller
+# ---------------------------------------------------------------------------
+
+class LatchController:
+    """Coordinates WireGuard, Caddy filters, timers, and notifications."""
+
+    def __init__(self, cfg: dict, state: LatchState):
+        self.cfg = cfg
+        self.state = state
+        self._timer: threading.Timer | None = None
+        self._reminder_stop = threading.Event()
+        self._reminder_thread: threading.Thread | None = None
+        self._lock = threading.Lock()
+
+        self._reconcile_on_startup()
+
+    def _reconcile_on_startup(self) -> None:
+        """Ensure system state matches persisted desired state on agent start."""
+        current = self.state.get()
+        wg_iface = self.cfg["wg_interface"]
+
+        if current["enabled"]:
+            # Check if timer expired while agent was down
+            if current["expires"]:
+                expires = datetime.fromisoformat(current["expires"])
+                if datetime.now(timezone.utc) >= expires:
+                    logging.warning(
+                        "Latch was open but timer expired while agent was offline — locking"
+                    )
+                    self._do_disable("backstop (expired while agent was offline)")
+                    return
+
+            logging.info("Reconciling: latch should be open, ensuring system state matches")
+            if not wg_is_up(wg_iface):
+                wg_up(wg_iface)
+
+            write_filter_open(
+                self.cfg,
+                current.get("allowed_countries", []),
+                current.get("allowed_ips", []),
+            )
+            reload_caddy(self.cfg["caddy_reload_cmd"])
+            self._start_timer()
+            self._start_reminder()
+
+            send_ntfy(
+                self.cfg,
+                "CaddyLatch — agent restarted",
+                f"Latch is open. Expires: {current['expires']}",
+            )
+        else:
+            logging.info("Reconciling: latch should be locked, ensuring system state matches")
+            if wg_is_up(wg_iface):
+                logging.warning("WireGuard is up but latch is locked — stopping")
+                wg_down(wg_iface)
+
+            write_filter_locked(self.cfg)
+            reload_caddy(self.cfg["caddy_reload_cmd"])
+
+    def enable(
+        self,
+        allowed_ips: list[str],
+        allowed_countries: list[str],
+        duration_minutes: int | None = None,
+    ) -> dict:
+        """Open the latch — enable tunnel and filtered access."""
+        with self._lock:
+            wg_iface = self.cfg["wg_interface"]
+            max_dur = int(self.cfg["max_duration_minutes"])
+            default_dur = int(self.cfg["default_duration_minutes"])
+
+            duration = duration_minutes or default_dur
+            if duration > max_dur:
+                duration = max_dur
+
+            now = datetime.now(timezone.utc)
+            expires = datetime.fromtimestamp(
+                now.timestamp() + duration * 60, tz=timezone.utc
+            )
+
+            # 1. Write filter FIRST (locked down until WG is up anyway)
+            write_filter_open(self.cfg, allowed_countries, allowed_ips)
+
+            # 2. Reload Caddy with new filters
+            if not reload_caddy(self.cfg["caddy_reload_cmd"]):
+                logging.error("Caddy reload failed — rolling back")
+                write_filter_locked(self.cfg)
+                reload_caddy(self.cfg["caddy_reload_cmd"])
+                send_ntfy(
+                    self.cfg,
+                    "⚠️ CaddyLatch — FAILED to open",
+                    "Caddy reload failed, filters rolled back",
+                    int(self.cfg["ntfy_alert_priority"]),
+                )
+                return {"error": "Caddy reload failed"}
+
+            # 3. Bring WireGuard up
+            if not wg_up(wg_iface):
+                write_filter_locked(self.cfg)
+                reload_caddy(self.cfg["caddy_reload_cmd"])
+                send_ntfy(
+                    self.cfg,
+                    "⚠️ CaddyLatch — FAILED to open",
+                    "WireGuard failed to start, filters rolled back",
+                    int(self.cfg["ntfy_alert_priority"]),
+                )
+                return {"error": "WireGuard failed to start"}
+
+            # 4. Persist state
+            new_state = self.state.update(
+                {
+                    "enabled": True,
+                    "allowed_ips": allowed_ips,
+                    "allowed_countries": allowed_countries,
+                    "expires": expires.isoformat(),
+                    "enabled_at": now.isoformat(),
+                    "disabled_reason": None,
+                }
+            )
+
+            # 5. Start timer and reminder
+            self._start_timer()
+            self._start_reminder()
+
+            # 6. Notify
+            send_ntfy(
+                self.cfg,
+                "🔓 CaddyLatch OPEN",
+                f"IPs: {', '.join(allowed_ips) or 'any'}\n"
+                f"Countries: {', '.join(allowed_countries) or 'any'}\n"
+                f"Expires: {expires.strftime('%Y-%m-%d %H:%M UTC')}\n"
+                f"Duration: {duration} min",
+            )
+            ping_healthchecks(self.cfg)
+
+            logging.info(
+                f"Latch opened — IPs={allowed_ips}, "
+                f"countries={allowed_countries}, expires={expires.isoformat()}"
+            )
+            return new_state
+
+    def disable(self, reason: str = "manual") -> dict:
+        """Close the latch."""
+        with self._lock:
+            return self._do_disable(reason)
+
+    def _do_disable(self, reason: str) -> dict:
+        """Internal disable — caller must hold self._lock or be in __init__."""
+        wg_iface = self.cfg["wg_interface"]
+
+        self._cancel_timer()
+        self._cancel_reminder()
+
+        # 1. Stop WireGuard
+        wg_down(wg_iface)
+
+        # 2. Lock filter
+        write_filter_locked(self.cfg)
+
+        # 3. Reload Caddy
+        reload_caddy(self.cfg["caddy_reload_cmd"])
+
+        # 4. Persist state
+        new_state = self.state.update(
+            {
+                "enabled": False,
+                "allowed_ips": [],
+                "allowed_countries": [],
+                "expires": None,
+                "enabled_at": None,
+                "disabled_reason": reason,
+            }
+        )
+
+        # 5. Notify
+        is_backstop = reason != "manual"
+        priority = (
+            int(self.cfg["ntfy_alert_priority"])
+            if is_backstop
+            else int(self.cfg["ntfy_priority"])
+        )
+        title = (
+            "🔒 CaddyLatch LOCKED (backstop)"
+            if is_backstop
+            else "🔒 CaddyLatch LOCKED"
+        )
+        send_ntfy(self.cfg, title, f"Reason: {reason}", priority)
+        ping_healthchecks(self.cfg)
+
+        logging.info(f"Latch locked — reason={reason}")
+        return new_state
+
+    def update_filters(
+        self, allowed_ips: list[str], allowed_countries: list[str]
+    ) -> dict:
+        """Update filters while the latch is open (no timer change)."""
+        with self._lock:
+            if not self.state.enabled:
+                return {"error": "latch is not open"}
+
+            write_filter_open(self.cfg, allowed_countries, allowed_ips)
+            if not reload_caddy(self.cfg["caddy_reload_cmd"]):
+                return {"error": "Caddy reload failed"}
+
+            new_state = self.state.update(
+                {
+                    "allowed_ips": allowed_ips,
+                    "allowed_countries": allowed_countries,
+                }
+            )
+
+            send_ntfy(
+                self.cfg,
+                "🔓 CaddyLatch filters updated",
+                f"IPs: {', '.join(allowed_ips) or 'any'}\n"
+                f"Countries: {', '.join(allowed_countries) or 'any'}",
+            )
+
+            logging.info(f"Filters updated — IPs={allowed_ips}, countries={allowed_countries}")
+            return new_state
+
+    def extend(self, additional_minutes: int) -> dict:
+        """Extend the timer while the latch is open."""
+        with self._lock:
+            state = self.state.get()
+            if not state["enabled"]:
+                return {"error": "latch is not open"}
+
+            current_expires = datetime.fromisoformat(state["expires"])
+            enabled_at = datetime.fromisoformat(state["enabled_at"])
+            max_dur = int(self.cfg["max_duration_minutes"])
+
+            new_expires = datetime.fromtimestamp(
+                current_expires.timestamp() + additional_minutes * 60,
+                tz=timezone.utc,
+            )
+            total_duration = (new_expires - enabled_at).total_seconds() / 60
+            if total_duration > max_dur:
+                return {
+                    "error": f"total duration would exceed max ({max_dur} min)"
+                }
+
+            new_state = self.state.update({"expires": new_expires.isoformat()})
+            self._start_timer()
+
+            send_ntfy(
+                self.cfg,
+                "⏱️ CaddyLatch extended",
+                f"New expiry: {new_expires.strftime('%Y-%m-%d %H:%M UTC')}\n"
+                f"Added: {additional_minutes} min",
+            )
+
+            logging.info(f"Timer extended by {additional_minutes} min to {new_expires.isoformat()}")
+            return new_state
+
+    # --- Timer management ---
+
+    def _start_timer(self) -> None:
+        self._cancel_timer()
+        expires = self.state.expires
+        if not expires:
+            return
+
+        remaining = (expires - datetime.now(timezone.utc)).total_seconds()
+        if remaining <= 0:
+            self._do_disable("timer expired")
+            return
+
+        logging.info(f"Timer set: {remaining:.0f}s remaining")
+        self._timer = threading.Timer(remaining, self._on_timer_expire)
+        self._timer.daemon = True
+        self._timer.start()
+
+    def _cancel_timer(self) -> None:
+        if self._timer:
+            self._timer.cancel()
+            self._timer = None
+
+    def _on_timer_expire(self) -> None:
+        logging.warning("Timer expired — locking latch")
+        with self._lock:
+            if self.state.enabled:
+                self._do_disable("timer expired")
+
+    # --- Reminder management ---
+
+    def _start_reminder(self) -> None:
+        self._cancel_reminder()
+        interval = int(self.cfg["reminder_interval_minutes"]) * 60
+        if interval <= 0:
+            return
+
+        self._reminder_stop = threading.Event()
+        stop = self._reminder_stop
+
+        def remind():
+            while not stop.wait(interval):
+                state = self.state.get()
+                if not state["enabled"]:
+                    break
+                remaining = ""
+                if state.get("expires"):
+                    exp = datetime.fromisoformat(state["expires"])
+                    mins_left = (exp - datetime.now(timezone.utc)).total_seconds() / 60
+                    remaining = f"\nTime remaining: {int(mins_left)} min"
+                send_ntfy(
+                    self.cfg,
+                    "ℹ️ CaddyLatch still open",
+                    f"Expires: {state.get('expires', 'unknown')}{remaining}",
+                )
+                logging.info("Sent 'still open' reminder")
+
+        self._reminder_thread = threading.Thread(target=remind, daemon=True)
+        self._reminder_thread.start()
+
+    def _cancel_reminder(self) -> None:
+        if self._reminder_stop:
+            self._reminder_stop.set()
+        self._reminder_thread = None
+
+
+# ---------------------------------------------------------------------------
+# HTTP API
+# ---------------------------------------------------------------------------
+
+class APIHandler(BaseHTTPRequestHandler):
+    """HTTP request handler for the CaddyLatch API."""
+
+    controller: LatchController = None
+    cfg: dict = None
+
+    def _send_json(self, status: int, data: dict) -> None:
+        body = json.dumps(data, indent=2).encode("utf-8")
+        self.send_response(status)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+    def _read_body(self) -> dict | None:
+        length = int(self.headers.get("Content-Length", 0))
+        if length == 0:
+            return None
+        try:
+            return json.loads(self.rfile.read(length))
+        except (json.JSONDecodeError, ValueError):
+            return None
+
+    def do_GET(self) -> None:
+        if self.path == "/status":
+            state = self.controller.state.get()
+            state["wg_up"] = wg_is_up(self.cfg["wg_interface"])
+            state["version"] = __version__
+            self._send_json(200, state)
+
+        elif self.path == "/health":
+            self._send_json(200, {"status": "ok", "version": __version__})
+
+        else:
+            self._send_json(404, {"error": "not found"})
+
+    def do_POST(self) -> None:
+        if self.path == "/enable":
+            body = self._read_body()
+            if not body:
+                self._send_json(400, {"error": "missing request body"})
+                return
+
+            allowed_ips = body.get("allowed_ips", [])
+            allowed_countries = body.get("allowed_countries", [])
+            duration = body.get("duration_minutes")
+
+            if not allowed_ips and not allowed_countries:
+                self._send_json(
+                    400,
+                    {"error": "at least one of allowed_ips or allowed_countries required"},
+                )
+                return
+
+            result = self.controller.enable(
+                allowed_ips=allowed_ips,
+                allowed_countries=allowed_countries,
+                duration_minutes=duration,
+            )
+
+            if "error" in result:
+                self._send_json(500, result)
+            else:
+                self._send_json(200, result)
+
+        elif self.path == "/disable":
+            result = self.controller.disable(reason="manual")
+            self._send_json(200, result)
+
+        elif self.path == "/extend":
+            body = self._read_body()
+            if not body:
+                self._send_json(400, {"error": "missing request body"})
+                return
+
+            additional_minutes = body.get("additional_minutes")
+            if not additional_minutes or additional_minutes <= 0:
+                self._send_json(400, {"error": "positive additional_minutes required"})
+                return
+
+            result = self.controller.extend(additional_minutes)
+            if "error" in result:
+                self._send_json(400, result)
+            else:
+                self._send_json(200, result)
+
+        elif self.path == "/update-filters":
+            body = self._read_body()
+            if not body:
+                self._send_json(400, {"error": "missing request body"})
+                return
+
+            allowed_ips = body.get("allowed_ips", [])
+            allowed_countries = body.get("allowed_countries", [])
+
+            if not allowed_ips and not allowed_countries:
+                self._send_json(
+                    400,
+                    {"error": "at least one of allowed_ips or allowed_countries required"},
+                )
+                return
+
+            result = self.controller.update_filters(allowed_ips, allowed_countries)
+            if "error" in result:
+                self._send_json(400, result)
+            else:
+                self._send_json(200, result)
+
+        else:
+            self._send_json(404, {"error": "not found"})
+
+    def log_message(self, format, *args) -> None:
+        """Redirect HTTP server logs to our logger."""
+        logging.debug(f"HTTP: {args[0]}")
+
+
+# ---------------------------------------------------------------------------
+# Main
+# ---------------------------------------------------------------------------
+
+def main() -> None:
+    cfg = load_config()
+    setup_logging(cfg)
+
+    listen_host = cfg["listen_host"]
+    if listen_host == "CHANGE_ME":
+        logging.error(
+            "listen_host is not configured. Edit %s and set it to your "
+            "Tailscale IP or 127.0.0.1.",
+            CONFIG_PATH,
+        )
+        sys.exit(1)
+
+    logging.info(f"CaddyLatch v{__version__} starting")
+
+    state = LatchState(cfg["state_file"])
+    controller = LatchController(cfg, state)
+
+    APIHandler.controller = controller
+    APIHandler.cfg = cfg
+
+    port = int(cfg["listen_port"])
+    server = HTTPServer((listen_host, port), APIHandler)
+    logging.info(f"API listening on {listen_host}:{port}")
+
+    try:
+        server.serve_forever()
+    except KeyboardInterrupt:
+        logging.info("Shutting down")
+        server.shutdown()
+
+
+if __name__ == "__main__":
+    main()
