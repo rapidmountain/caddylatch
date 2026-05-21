@@ -364,47 +364,56 @@ def reload_caddy(cmd: str) -> bool:
 # ---------------------------------------------------------------------------
 
 def send_ntfy(cfg: dict, title: str, message: str, priority: int | None = None) -> None:
-    """Send notification via ntfy."""
+    """Send notification via ntfy with retry for transient failures."""
     if not cfg.get("ntfy_url") or not cfg.get("ntfy_topic"):
         return
 
     url = f"{cfg['ntfy_url']}/{cfg['ntfy_topic']}"
     prio = str(priority or cfg["ntfy_priority"])
 
-    try:
-        import base64
-        import urllib.request
+    import base64
+    import urllib.request
 
-        headers = {
-            "Priority": prio,
-            "Tags": "lock",
-        }
+    headers = {
+        "Priority": prio,
+        "Tags": "lock",
+    }
 
-        # Encode title as UTF-8 for emoji support
-        headers["Title"] = title.encode("utf-8")
+    # Encode title as UTF-8 for emoji support
+    headers["Title"] = title.encode("utf-8")
 
-        # Authentication: user:pass or token
-        ntfy_user = cfg.get("ntfy_user", "")
-        ntfy_pass = cfg.get("ntfy_pass", "")
-        ntfy_token = cfg.get("ntfy_token", "")
+    # Authentication: user:pass or token
+    ntfy_user = cfg.get("ntfy_user", "")
+    ntfy_pass = cfg.get("ntfy_pass", "")
+    ntfy_token = cfg.get("ntfy_token", "")
 
-        if ntfy_token:
-            headers["Authorization"] = f"Bearer {ntfy_token}"
-        elif ntfy_user and ntfy_pass:
-            credentials = base64.b64encode(
-                f"{ntfy_user}:{ntfy_pass}".encode()
-            ).decode()
-            headers["Authorization"] = f"Basic {credentials}"
+    if ntfy_token:
+        headers["Authorization"] = f"Bearer {ntfy_token}"
+    elif ntfy_user and ntfy_pass:
+        credentials = base64.b64encode(
+            f"{ntfy_user}:{ntfy_pass}".encode()
+        ).decode()
+        headers["Authorization"] = f"Basic {credentials}"
 
-        req = urllib.request.Request(
-            url,
-            data=message.encode("utf-8"),
-            headers=headers,
-        )
-        urllib.request.urlopen(req, timeout=10)
-        logging.info(f"ntfy sent: {title}")
-    except Exception as e:
-        logging.error(f"ntfy failed: {e}")
+    max_retries = 3
+    retry_delay = 5  # seconds
+
+    for attempt in range(1, max_retries + 1):
+        try:
+            req = urllib.request.Request(
+                url,
+                data=message.encode("utf-8"),
+                headers=headers,
+            )
+            urllib.request.urlopen(req, timeout=10)
+            logging.info(f"ntfy sent: {title}")
+            return
+        except Exception as e:
+            if attempt < max_retries:
+                logging.warning(f"ntfy attempt {attempt}/{max_retries} failed: {e} — retrying in {retry_delay}s")
+                time.sleep(retry_delay)
+            else:
+                logging.error(f"ntfy failed after {max_retries} attempts: {e}")
 
 
 def ping_healthchecks(cfg: dict, status: str = "") -> None:
