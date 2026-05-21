@@ -58,16 +58,17 @@ config_merge() {
     local template="$1"
     local existing="$2"
 
+    # Trim leading/trailing whitespace without xargs (xargs chokes on quotes)
+    trim() { local v="$1"; v="${v#"${v%%[![:space:]]*}"}"; v="${v%"${v##*[![:space:]]}"}"; echo "$v"; }
+
     # Parse keys from template
     declare -A tmpl_keys
     while IFS= read -r line; do
-        line_trimmed="$(echo "$line" | xargs)"
+        line_trimmed="$(trim "$line")"
         [[ -z "$line_trimmed" || "$line_trimmed" == \#* ]] && continue
         if [[ "$line_trimmed" == *=* ]]; then
-            key="${line_trimmed%%=*}"
-            key="$(echo "$key" | xargs)"
-            val="${line_trimmed#*=}"
-            val="$(echo "$val" | xargs)"
+            key="$(trim "${line_trimmed%%=*}")"
+            val="$(trim "${line_trimmed#*=}")"
             tmpl_keys["$key"]="$val"
         fi
     done < "$template"
@@ -76,13 +77,11 @@ config_merge() {
     declare -A exist_keys
     declare -A exist_values
     while IFS= read -r line; do
-        line_trimmed="$(echo "$line" | xargs)"
+        line_trimmed="$(trim "$line")"
         [[ -z "$line_trimmed" || "$line_trimmed" == \#* ]] && continue
         if [[ "$line_trimmed" == *=* ]]; then
-            key="${line_trimmed%%=*}"
-            key="$(echo "$key" | xargs)"
-            val="${line_trimmed#*=}"
-            val="$(echo "$val" | xargs)"
+            key="$(trim "${line_trimmed%%=*}")"
+            val="$(trim "${line_trimmed#*=}")"
             exist_keys["$key"]=1
             exist_values["$key"]="$val"
         fi
@@ -142,14 +141,13 @@ config_merge() {
             tmp_config="$(mktemp)"
 
             while IFS= read -r line; do
-                line_trimmed="$(echo "$line" | xargs)"
+                line_trimmed="$(trim "$line")"
                 if [[ -z "$line_trimmed" || "$line_trimmed" == \#* ]]; then
                     echo "$line" >> "$tmp_config"
                     continue
                 fi
                 if [[ "$line_trimmed" == *=* ]]; then
-                    key="${line_trimmed%%=*}"
-                    key="$(echo "$key" | xargs)"
+                    key="$(trim "${line_trimmed%%=*}")"
                     if [[ -n "${exist_values[$key]+x}" ]]; then
                         echo "${key}=${exist_values[$key]}" >> "$tmp_config"
                     else
