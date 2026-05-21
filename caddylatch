@@ -51,6 +51,9 @@ DEFAULT_CONFIG = {
     "reminder_interval_minutes": "120",
     "ntfy_url": "",
     "ntfy_topic": "caddylatch",
+    "ntfy_token": "",
+    "ntfy_user": "",
+    "ntfy_pass": "",
     "ntfy_priority": "3",
     "ntfy_alert_priority": "5",
     "healthchecks_url": "",
@@ -369,16 +372,34 @@ def send_ntfy(cfg: dict, title: str, message: str, priority: int | None = None) 
     prio = str(priority or cfg["ntfy_priority"])
 
     try:
+        import base64
         import urllib.request
+
+        headers = {
+            "Priority": prio,
+            "Tags": "lock",
+        }
+
+        # Encode title as UTF-8 for emoji support
+        headers["Title"] = title.encode("utf-8")
+
+        # Authentication: user:pass or token
+        ntfy_user = cfg.get("ntfy_user", "")
+        ntfy_pass = cfg.get("ntfy_pass", "")
+        ntfy_token = cfg.get("ntfy_token", "")
+
+        if ntfy_token:
+            headers["Authorization"] = f"Bearer {ntfy_token}"
+        elif ntfy_user and ntfy_pass:
+            credentials = base64.b64encode(
+                f"{ntfy_user}:{ntfy_pass}".encode()
+            ).decode()
+            headers["Authorization"] = f"Basic {credentials}"
 
         req = urllib.request.Request(
             url,
             data=message.encode("utf-8"),
-            headers={
-                "Title": title,
-                "Priority": prio,
-                "Tags": "lock",
-            },
+            headers=headers,
         )
         urllib.request.urlopen(req, timeout=10)
         logging.info(f"ntfy sent: {title}")

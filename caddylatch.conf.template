@@ -44,6 +44,14 @@ ntfy_url=
 # ntfy topic for tunnel state changes
 ntfy_topic=caddylatch
 
+# ntfy authentication — use EITHER token OR user+pass (not both)
+# Token-based auth (leave empty to disable)
+ntfy_token=
+
+# User/password auth (leave empty to disable)
+ntfy_user=
+ntfy_pass=
+
 # ntfy priority for normal state changes (1-5)
 ntfy_priority=3
 
