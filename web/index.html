@@ -76,13 +76,13 @@ const S={
   tgK:{width:16,height:16,borderRadius:"50%",background:"var(--txt2)",position:"absolute",top:2,left:2,transition:"all .2s"},
   tgKOn:{left:20,background:"var(--grn)"},
   cps:{display:"flex",flexWrap:"wrap",gap:7,alignItems:"center"},
-  cp:{display:"inline-flex",alignItems:"center",gap:5,padding:"6px 12px",borderRadius:6,fontSize:13,fontWeight:500,cursor:"pointer",border:"1px solid",transition:"all .15s"},
-  cpB:{borderColor:"var(--blu)",background:"var(--blu-d)",color:"var(--blu)"},
-  cpO:{borderColor:"var(--bdr)",background:"transparent",color:"var(--txt3)",borderStyle:"dashed"},
-  cpG:{borderColor:"var(--grn)",background:"var(--grn-d)",color:"var(--grn)"},
-  cpGi:{borderColor:"var(--bdr)",background:"transparent",color:"var(--txt3)",borderStyle:"dashed"},
-  cpP:{borderColor:"var(--pur)",background:"var(--pur-d)",color:"var(--pur)",fontFamily:"var(--mono)",fontSize:12},
-  cpPi:{borderColor:"var(--bdr)",background:"transparent",color:"var(--txt2)",fontFamily:"var(--mono)",fontSize:12,borderStyle:"dashed"},
+  cp:{display:"inline-flex",alignItems:"center",gap:5,padding:"6px 12px",borderRadius:6,fontSize:13,fontWeight:500,cursor:"pointer",border:"1px solid var(--bdr)",outline:"none",transition:"all .15s"},
+  cpB:{borderColor:"var(--blu)",background:"var(--blu-d)",color:"var(--blu)",boxShadow:"0 0 0 2px var(--blu)"},
+  cpO:{borderColor:"var(--bdr)",background:"transparent",color:"var(--txt3)",borderStyle:"dashed",boxShadow:"none"},
+  cpG:{borderColor:"var(--grn)",background:"var(--grn-d)",color:"var(--grn)",boxShadow:"0 0 0 2px var(--grn)"},
+  cpGi:{borderColor:"var(--bdr)",background:"transparent",color:"var(--txt3)",borderStyle:"dashed",boxShadow:"none"},
+  cpP:{borderColor:"var(--pur)",background:"var(--pur-d)",color:"var(--pur)",fontFamily:"var(--mono)",fontSize:12,boxShadow:"0 0 0 2px var(--pur)"},
+  cpPi:{borderColor:"var(--bdr)",background:"transparent",color:"var(--txt2)",fontFamily:"var(--mono)",fontSize:12,borderStyle:"dashed",boxShadow:"none"},
   srch:{marginTop:10},
   srchIn:{width:"100%",padding:"9px 12px",borderRadius:6,border:"1px solid var(--bdr)",background:"var(--bg4)",color:"var(--txt)",font:"400 13px var(--sans)",outline:"none"},
   sr:{marginTop:4,background:"var(--bg2)",border:"1px solid var(--bdr)",borderRadius:6,maxHeight:180,overflowY:"auto"},
@@ -416,18 +416,11 @@ function App(){
                     <Chip style={{...S.cpO,fontSize:12}} onClick={()=>setView("lists")}>⚙ Manage</Chip>
                   </div>
 
-                  {/* My IP tag */}
-                  {myIpActive&&myIpAddr&&(
-                    <div style={S.tags}>
-                      <span style={{...S.tag,...S.tagG}}>{myIpAddr}/32 <span style={{opacity:.5,fontSize:10,marginLeft:2}}>My IP</span></span>
-                    </div>
-                  )}
-
                   {/* Manual IPs as toggleable chips */}
                   {manualIps.length>0&&(
                     <div style={{...S.cps,marginTop:10}}>
                       {manualIps.map((m,i)=>(
-                        <Chip key={m.ip} style={m.active?{...S.cp,borderColor:"var(--amb)",background:"var(--amb-d)",color:"var(--amb)",fontFamily:"var(--mono)",fontSize:12}:{...S.cpPi}} onClick={()=>{const n=[...manualIps];n[i]={...n[i],active:!n[i].active};setManualIps(n)}}>
+                        <Chip key={m.ip} style={m.active?{...S.cp,borderColor:"var(--amb)",background:"var(--amb-d)",color:"var(--amb)",fontFamily:"var(--mono)",fontSize:12,boxShadow:"0 0 0 2px var(--amb)"}:{...S.cpPi}} onClick={()=>{const n=[...manualIps];n[i]={...n[i],active:!n[i].active};setManualIps(n)}}>
                           {m.ip}
                           <span style={{opacity:.5,fontSize:10,cursor:"pointer"}} onClick={e=>{e.stopPropagation();setManualIps(manualIps.filter((_,j)=>j!==i))}}>✕</span>
                         </Chip>
