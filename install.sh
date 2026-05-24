@@ -154,11 +154,11 @@ if [[ ! -f "$CADDY_FILTER" ]]; then
 EOF
 fi
 
-# Check Caddyfile
+# Check Caddyfile — warn only if geo_filter is defined directly (not imported via filter-caddylatch.caddy)
 CADDYFILE="/etc/caddy/Caddyfile"
-if [[ -f "$CADDYFILE" ]] && grep -q "(geo_filter)" "$CADDYFILE"; then
+if [[ -f "$CADDYFILE" ]] && grep -q "^(geo_filter)" "$CADDYFILE"; then
     echo ""
-    warn "Your Caddyfile contains a (geo_filter) snippet definition."
+    warn "Your Caddyfile defines a (geo_filter) snippet directly."
     echo "  CaddyLatch manages geo_filter dynamically via ${CADDY_FILTER}."
     echo "  Replace the (geo_filter) snippet in ${CADDYFILE} with:"
     echo ""

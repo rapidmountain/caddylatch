@@ -29,13 +29,14 @@ import subprocess
 import sys
 import threading
 import time
+import urllib.parse
 import urllib.request
 from datetime import datetime, timezone
 from http.server import HTTPServer, BaseHTTPRequestHandler
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
-__version__ = "0.3.0"
+__version__ = "0.3.1"
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -260,29 +261,44 @@ class IPListStore:
 # WireGuard control
 # ---------------------------------------------------------------------------
 
+SUBPROCESS_TIMEOUT = 30  # seconds
+
+
 def wg_is_up(interface: str) -> bool:
-    r = subprocess.run(["ip", "link", "show", interface], capture_output=True, text=True)
+    r = subprocess.run(["ip", "link", "show", interface], capture_output=True, text=True, timeout=10)
     return "UP" in r.stdout if r.returncode == 0 else False
 
 
 def wg_up(interface: str) -> bool:
     logging.info(f"Starting WireGuard interface {interface}")
-    r = subprocess.run(["systemctl", "start", f"wg-quick@{interface}"], capture_output=True, text=True)
-    if r.returncode != 0:
-        logging.error(f"Failed to start WireGuard: {r.stderr}")
+    try:
+        r = subprocess.run(["systemctl", "start", f"wg-quick@{interface}"],
+                           capture_output=True, text=True, timeout=SUBPROCESS_TIMEOUT)
+        if r.returncode != 0:
+            logging.error(f"Failed to start WireGuard: {r.stderr}")
+            return False
+        subprocess.run(["systemctl", "enable", f"wg-quick@{interface}"],
+                       capture_output=True, text=True, timeout=10)
+        return True
+    except subprocess.TimeoutExpired:
+        logging.error(f"WireGuard start timed out after {SUBPROCESS_TIMEOUT}s")
         return False
-    subprocess.run(["systemctl", "enable", f"wg-quick@{interface}"], capture_output=True, text=True)
-    return True
 
 
 def wg_down(interface: str) -> bool:
     logging.info(f"Stopping WireGuard interface {interface}")
-    r = subprocess.run(["systemctl", "stop", f"wg-quick@{interface}"], capture_output=True, text=True)
-    if r.returncode != 0:
-        logging.error(f"Failed to stop WireGuard: {r.stderr}")
+    try:
+        r = subprocess.run(["systemctl", "stop", f"wg-quick@{interface}"],
+                           capture_output=True, text=True, timeout=SUBPROCESS_TIMEOUT)
+        if r.returncode != 0:
+            logging.error(f"Failed to stop WireGuard: {r.stderr}")
+            return False
+        subprocess.run(["systemctl", "disable", f"wg-quick@{interface}"],
+                       capture_output=True, text=True, timeout=10)
+        return True
+    except subprocess.TimeoutExpired:
+        logging.error(f"WireGuard stop timed out after {SUBPROCESS_TIMEOUT}s")
         return False
-    subprocess.run(["systemctl", "disable", f"wg-quick@{interface}"], capture_output=True, text=True)
-    return True
 
 
 def wg_stats(interface: str) -> dict:
@@ -432,11 +448,15 @@ def write_filter_open(cfg: dict, countries: list[str], ips: list[str],
 
 def reload_caddy(cmd: str) -> bool:
     logging.info("Reloading Caddy")
-    r = subprocess.run(cmd.split(), capture_output=True, text=True)
-    if r.returncode != 0:
-        logging.error(f"Caddy reload failed: {r.stderr}")
+    try:
+        r = subprocess.run(cmd.split(), capture_output=True, text=True, timeout=SUBPROCESS_TIMEOUT)
+        if r.returncode != 0:
+            logging.error(f"Caddy reload failed: {r.stderr}")
+            return False
+        return True
+    except subprocess.TimeoutExpired:
+        logging.error(f"Caddy reload timed out after {SUBPROCESS_TIMEOUT}s")
         return False
-    return True
 
 
 # ---------------------------------------------------------------------------
@@ -925,9 +945,8 @@ class APIHandler(BaseHTTPRequestHandler):
             self._json(404, {"error": "not found"})
 
     def do_PUT(self) -> None:
-        # IP list management
         if self.path.startswith("/ip-lists/"):
-            name = self.path[len("/ip-lists/"):]
+            name = urllib.parse.unquote(self.path[len("/ip-lists/"):])
             if not name:
                 self._json(400, {"error": "list name required"})
                 return
@@ -947,7 +966,7 @@ class APIHandler(BaseHTTPRequestHandler):
 
     def do_DELETE(self) -> None:
         if self.path.startswith("/ip-lists/"):
-            name = self.path[len("/ip-lists/"):]
+            name = urllib.parse.unquote(self.path[len("/ip-lists/"):])
             if not name:
                 self._json(400, {"error": "list name required"})
                 return
