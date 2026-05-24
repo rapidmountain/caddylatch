@@ -256,7 +256,7 @@ function App(){
     if(myIpActive&&myIpAddr)ips.push(myIpAddr+"/32");
     // Add IPs from active lists (resolved server-side)
     const body={
-      allowed_countries:allCountries?[]:[...selCountries,...extraCountries],
+      allowed_countries:allCountries?[]:[...selCountries],
       all_countries:allCountries,
       allowed_ips:ips,
       allowed_ip_lists:[...activeIpLists],
@@ -316,7 +316,7 @@ function App(){
   };
 
   const confirmOpen=()=>{
-    const geo=allCountries?"All countries":([...selCountries,...extraCountries].map(c=>`${gf(c)} ${c}`).join(", ")||"None selected");
+    const geo=allCountries?"All countries":([...selCountries].map(c=>`${gf(c)} ${c}`).join(", ")||"None selected");
     const ip=anyIp?"Any IP":"Specific IPs";
     const dur=DURATION_PRESETS.find(p=>p.v===duration)?.l||`${duration} min`;
     setModal({title:"Open the latch?",body:`Traffic will be allowed through with these settings:<br><br><strong>Countries:</strong> ${geo}<br><strong>IPs:</strong> ${ip}<br><strong>Duration:</strong> ${dur}`,confirm:"Open latch",style:{border:"none",background:"var(--grn)",color:"#0a0c10"},action:doEnable});
