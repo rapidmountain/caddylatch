@@ -202,6 +202,7 @@ function App(){
   const[anyIp,setAnyIp]=useState(true);
   const[myIpActive,setMyIpActive]=useState(false);
   const[myIpAddr,setMyIpAddr]=useState("");
+  const[myIpUnavailable,setMyIpUnavailable]=useState(false);
   const[activeIpLists,setActiveIpLists]=useState(new Set());
   const[manualIps,setManualIps]=useState([]); // {ip,active}
   const[showAddIp,setShowAddIp]=useState(false);
@@ -224,7 +225,17 @@ function App(){
   },[]);
 
   useEffect(()=>{fetchAll();const iv=setInterval(fetchAll,3000);return()=>clearInterval(iv)},[fetchAll]);
-  useEffect(()=>{fetch("https://api.ipify.org?format=json").then(r=>r.json()).then(d=>setMyIpAddr(d.ip)).catch(()=>{})},[]);
+  useEffect(()=>{
+    const svcs=[
+      ()=>fetch("https://api.ipify.org?format=json").then(r=>r.json()).then(d=>d.ip),
+      ()=>fetch("https://ifconfig.me/ip").then(r=>r.text()).then(t=>t.trim()),
+      ()=>fetch("https://icanhazip.com").then(r=>r.text()).then(t=>t.trim()),
+    ];
+    (async()=>{
+      for(const svc of svcs){try{const ip=await svc();if(ip){setMyIpAddr(ip);return}}catch{}}
+      setMyIpUnavailable(true);
+    })();
+  },[]);
 
   // Theme
   useEffect(()=>{document.documentElement.setAttribute("data-theme",dark?"dark":"light")},[dark]);
@@ -394,8 +405,8 @@ function App(){
                 <Toggle on={anyIp} onChange={()=>setAnyIp(!anyIp)} label={anyIp?"Any IP (no restriction)":"Restrict to specific IPs"}/>
                 {!anyIp&&<>
                   <div style={S.ipTools}>
-                    <Chip style={myIpActive?S.cpG:S.cpGi} onClick={()=>setMyIpActive(!myIpActive)}>
-                      ⚡ My IP <span style={{opacity:.6,fontFamily:"var(--mono)",fontSize:11}}>({myIpAddr||"detecting..."})</span>
+                    <Chip style={myIpActive&&!myIpUnavailable?S.cpG:S.cpGi} onClick={myIpUnavailable?undefined:()=>setMyIpActive(!myIpActive)}>
+                      ⚡ My IP <span style={{opacity:.6,fontFamily:"var(--mono)",fontSize:11}}>({myIpUnavailable?"(unavailable)":myIpAddr||"detecting..."})</span>
                     </Chip>
                     {Object.entries(ipLists).map(([name,ips])=>(
                       <Chip key={name} style={activeIpLists.has(name)?S.cpP:S.cpPi} onClick={()=>{const s=new Set(activeIpLists);if(s.has(name))s.delete(name);else s.add(name);setActiveIpLists(s)}}>
