@@ -36,7 +36,7 @@ from http.server import HTTPServer, BaseHTTPRequestHandler
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
-__version__ = "0.3.1"
+__version__ = "0.3.2"
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -525,9 +525,31 @@ class LatchController:
         self._start_time = now_utc()
         self._reconcile_on_startup()
 
+    @staticmethod
+    def _wait_for_caddy(max_wait: int = 30) -> bool:
+        """Wait until Caddy is fully active (not reloading/starting)."""
+        for i in range(max_wait):
+            try:
+                r = subprocess.run(
+                    ["systemctl", "is-active", "caddy"],
+                    capture_output=True, text=True, timeout=5,
+                )
+                if r.stdout.strip() == "active":
+                    if i > 0:
+                        logging.info(f"Caddy became active after {i}s")
+                    return True
+            except subprocess.TimeoutExpired:
+                pass
+            time.sleep(1)
+        logging.error(f"Caddy not active after {max_wait}s")
+        return False
+
     def _reconcile_on_startup(self) -> None:
         current = self.state.get()
         wg_iface = self.cfg["wg_interface"]
+
+        # Wait for Caddy to be fully ready before any reload
+        self._wait_for_caddy()
 
         if current["enabled"]:
             if current["expires"]:
