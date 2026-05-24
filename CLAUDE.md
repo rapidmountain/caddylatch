@@ -73,7 +73,7 @@ When told to work on issues:
 7. For enhancements: create a PR from the feature branch to dev
 8. Merge the feature branch into dev: checkout dev, merge the branch, commit, and push dev. Do not leave feature branches unmerged.
 9. Move issue card to "In review" and verify the move succeeded
-10. Leave a comment on the issue with: (a) what was changed and which files were modified, (b) clear validation steps the reviewer can follow to verify the fix works correctly
+10. Leave a comment on the issue with: (a) what was changed and which files were modified, (b) deployment instructions — always include the standard deploy steps from the Deployment section below, and add any extra steps if needed (e.g. sudo systemctl reload caddy), (c) clear validation steps the reviewer can follow to verify the fix works correctly
 11. Work on issues one at a time, in the order given
 
 ## Labels
@@ -90,6 +90,21 @@ sudo bash install.sh
 sudo systemctl enable --now caddylatch
 sudo systemctl reload caddy
 ```
+
+## Deployment
+Standard deploy on vps01:
+```bash
+cd /opt/caddylatch
+sudo git pull origin dev
+sudo systemctl restart caddylatch
+```
+
+If the change modifies Caddy filter output or Caddyfile integration, also include:
+```bash
+sudo systemctl reload caddy
+```
+
+Always include deployment instructions in the issue comment when moving to "In review". Never assume the user knows which extra steps are needed — if Caddy reload is required, say so explicitly.
 
 ## Verification
 Before moving any issue to "In review":
