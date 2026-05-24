@@ -9,10 +9,10 @@ It controls two things on the edge VPS:
 
 ## Architecture
 - **Python 3.10+ backend** (stdlib only, no pip dependencies): Core daemon with JSON API
-- **Web UI** (`web/`): HTML frontend for controlling the latch
-- **Systemd integration** (`systemd/`): Service unit for the daemon
+- **Web UI** (web/): HTML frontend for controlling the latch
+- **Systemd integration** (systemd/): Service unit for the daemon
 - **Caddy integration**: Generates dynamic filter snippets imported by the Caddyfile
-- **WireGuard integration**: Controls `wg-quick` systemd units
+- **WireGuard integration**: Controls wg-quick systemd units
 - **MaxMind GeoLite2-Country**: Geo-filtering database
 
 ## API
@@ -23,9 +23,9 @@ IP Lists: GET /ip-lists | PUT /ip-lists/{name} | DELETE /ip-lists/{name}
 
 ## Deployment Target
 - Runs on an edge VPS (not on AshNet directly)
-- Installed to `/opt/caddylatch`
-- Config at `/etc/caddylatch/caddylatch.conf`
-- Caddy filter output: `/etc/caddy/filter-caddylatch.caddy`
+- Installed to /opt/caddylatch
+- Config at /etc/caddylatch/caddylatch.conf
+- Caddy filter output: /etc/caddy/filter-caddylatch.caddy
 - Notifications via ntfy
 - Dead man's switch via Healthchecks.io
 
@@ -40,14 +40,14 @@ IP Lists: GET /ip-lists | PUT /ip-lists/{name} | DELETE /ip-lists/{name}
 - **dev** branch: active development, Claude Code works here
 - **Feature branches**: task/issue-{number} for individual issues
 - Determine branch strategy by checking the Issue labels:
-  - bug label → commit directly to dev
-  - enhancement label → create branch task/issue-{number}, then PR to dev
-- Squash merge dev → main when ready for deployment
+  - bug label — commit directly to dev
+  - enhancement label — create branch task/issue-{number}, then PR to dev
+- Squash merge dev to main when ready for deployment
 
 ## GitHub Project: "CaddyLatch Backlog"
 Project Reference: GitHub Project #3
 
-Columns: Backlog → Refined → Ready for sprint → In progress → In review → Blocked → Done
+Columns: Backlog — Refined — Ready for sprint — In progress — In review — Blocked — Done
 
 Use the gh CLI to interact with the project board:
 - gh project item-list to find items
@@ -65,7 +65,7 @@ Blocked — items that cannot proceed due to external dependencies. Include a co
 
 When told to work on issues:
 1. Read the full issue description with gh issue view <number>
-2. Check the issue labels to determine branch strategy (bug → dev, enhancement → new branch)
+2. Check the issue labels to determine branch strategy (bug — dev, enhancement — new branch)
 3. Move the issue card to "In progress" and verify the move succeeded
 4. Implement the fix/feature
 5. Commit referencing the issue (e.g., "Fix timer persistence (#3)")
@@ -77,37 +77,38 @@ When told to work on issues:
 11. Work on issues one at a time, in the order given
 
 ## Labels
-- bug — something broken → work directly on dev
-- enhancement — new functionality or improvement → create feature branch
+- bug — something broken, work directly on dev
+- enhancement — new functionality or improvement, create feature branch
 - documentation — docs changes
 - duplicate — duplicate issue
 - priority: high — urgent
 - priority: low — can wait
 
-## Install & Test
-```bash
+## Install and Test
 sudo bash install.sh
 sudo systemctl enable --now caddylatch
 sudo systemctl reload caddy
-```
 
 ## Deployment
-Standard deploy on vps01:
-```bash
-cd /opt/caddylatch
-sudo git pull origin dev
+Standard deploy on vps01 (no git installed — uses tarball download):
+
+cd /opt && sudo rm -rf caddylatch
+sudo bash -c 'curl -sL https://github.com/rapidmountain/caddylatch/archive/refs/heads/dev.tar.gz | tar xz && mv caddylatch-dev caddylatch'
+cd /opt/caddylatch && sudo bash install.sh
 sudo systemctl restart caddylatch
-```
 
 If the change modifies Caddy filter output or Caddyfile integration, also include:
-```bash
+
 sudo systemctl reload caddy
-```
+
+When merging dev to main for a stable release, the deploy URL changes to:
+
+sudo bash -c 'curl -sL https://github.com/rapidmountain/caddylatch/archive/refs/heads/main.tar.gz | tar xz && mv caddylatch-main caddylatch'
 
 Always include deployment instructions in the issue comment when moving to "In review". Never assume the user knows which extra steps are needed — if Caddy reload is required, say so explicitly.
 
 ## Verification
 Before moving any issue to "In review":
-1. Python syntax check: `python3 -m py_compile caddylatch`
+1. Python syntax check: python3 -m py_compile caddylatch
 2. No hardcoded credentials or paths that should be configurable
 3. All API responses must be valid JSON
