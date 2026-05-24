@@ -1,0 +1,587 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>CaddyLatch</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🔒</text></svg>">
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.9/babel.min.js"></script>
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+:root{--bg:#0a0c10;--bg2:#12151b;--bg3:#181c24;--bg4:#1e232d;--bdr:#2a3040;--bdr2:#3a4258;--txt:#e4e8f0;--txt2:#8892a8;--txt3:#555e72;--grn:#34d399;--grn-d:rgba(52,211,153,.1);--red:#f87171;--red-d:rgba(248,113,113,.1);--blu:#60a5fa;--blu-d:rgba(96,165,250,.1);--amb:#fbbf24;--amb-d:rgba(251,191,36,.1);--pur:#a78bfa;--pur-d:rgba(167,139,250,.1);--sans:'Plus Jakarta Sans',-apple-system,sans-serif;--mono:'JetBrains Mono',monospace}
+[data-theme="light"]{--bg:#f4f5f7;--bg2:#fff;--bg3:#f0f1f4;--bg4:#ebedf0;--bdr:#dde0e6;--bdr2:#c8ccd4;--txt:#1a1e28;--txt2:#5a6478;--txt3:#9098aa;--grn:#059669;--grn-d:rgba(5,150,105,.08);--red:#dc2626;--red-d:rgba(220,38,38,.08);--blu:#2563eb;--blu-d:rgba(37,99,235,.08);--amb:#d97706;--amb-d:rgba(217,119,6,.08);--pur:#7c3aed;--pur-d:rgba(124,58,237,.08)}
+body{font-family:var(--sans);background:var(--bg);color:var(--txt);min-height:100vh;-webkit-font-smoothing:antialiased;transition:background .2s,color .2s}
+input::placeholder{color:var(--txt3)}
+::-webkit-scrollbar{width:6px}::-webkit-scrollbar-thumb{background:var(--bdr);border-radius:3px}
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel">
+const {useState,useEffect,useCallback,useRef} = React;
+
+// ── Constants ──
+const FLAGS={"AF":"🇦🇫","AL":"🇦🇱","DZ":"🇩🇿","AD":"🇦🇩","AO":"🇦🇴","AR":"🇦🇷","AM":"🇦🇲","AU":"🇦🇺","AT":"🇦🇹","AZ":"🇦🇿","BS":"🇧🇸","BH":"🇧🇭","BD":"🇧🇩","BB":"🇧🇧","BY":"🇧🇾","BE":"🇧🇪","BZ":"🇧🇿","BJ":"🇧🇯","BT":"🇧🇹","BO":"🇧🇴","BA":"🇧🇦","BW":"🇧🇼","BR":"🇧🇷","BN":"🇧🇳","BG":"🇧🇬","CA":"🇨🇦","CL":"🇨🇱","CN":"🇨🇳","CO":"🇨🇴","HR":"🇭🇷","CU":"🇨🇺","CY":"🇨🇾","CZ":"🇨🇿","DK":"🇩🇰","DO":"🇩🇴","EC":"🇪🇨","EG":"🇪🇬","EE":"🇪🇪","ET":"🇪🇹","FI":"🇫🇮","FR":"🇫🇷","GE":"🇬🇪","DE":"🇩🇪","GH":"🇬🇭","GR":"🇬🇷","GT":"🇬🇹","HK":"🇭🇰","HU":"🇭🇺","IS":"🇮🇸","IN":"🇮🇳","ID":"🇮🇩","IR":"🇮🇷","IQ":"🇮🇶","IE":"🇮🇪","IL":"🇮🇱","IT":"🇮🇹","JM":"🇯🇲","JP":"🇯🇵","JO":"🇯🇴","KZ":"🇰🇿","KE":"🇰🇪","KW":"🇰🇼","KR":"🇰🇷","LV":"🇱🇻","LB":"🇱🇧","LT":"🇱🇹","LU":"🇱🇺","MY":"🇲🇾","MT":"🇲🇹","MX":"🇲🇽","MD":"🇲🇩","MC":"🇲🇨","MN":"🇲🇳","ME":"🇲🇪","MA":"🇲🇦","MZ":"🇲🇿","MM":"🇲🇲","NA":"🇳🇦","NP":"🇳🇵","NL":"🇳🇱","NZ":"🇳🇿","NG":"🇳🇬","MK":"🇲🇰","NO":"🇳🇴","OM":"🇴🇲","PK":"🇵🇰","PA":"🇵🇦","PY":"🇵🇾","PE":"🇵🇪","PH":"🇵🇭","PL":"🇵🇱","PT":"🇵🇹","QA":"🇶🇦","RO":"🇷🇴","RU":"🇷🇺","SA":"🇸🇦","SN":"🇸🇳","RS":"🇷🇸","SG":"🇸🇬","SK":"🇸🇰","SI":"🇸🇮","ZA":"🇿🇦","ES":"🇪🇸","LK":"🇱🇰","SE":"🇸🇪","CH":"🇨🇭","TW":"🇹🇼","TZ":"🇹🇿","TH":"🇹🇭","TT":"🇹🇹","TN":"🇹🇳","TR":"🇹🇷","UA":"🇺🇦","AE":"🇦🇪","GB":"🇬🇧","US":"🇺🇸","UY":"🇺🇾","UZ":"🇺🇿","VE":"🇻🇪","VN":"🇻🇳"};
+const ALL_COUNTRIES=[["SE","Sweden"],["DK","Denmark"],["NO","Norway"],["FI","Finland"],["DE","Germany"],["NL","Netherlands"],["GB","United Kingdom"],["US","United States"],["FR","France"],["ES","Spain"],["IT","Italy"],["PT","Portugal"],["CH","Switzerland"],["AT","Austria"],["PL","Poland"],["IE","Ireland"],["BE","Belgium"],["CZ","Czechia"],["GR","Greece"],["HU","Hungary"],["RO","Romania"],["HR","Croatia"],["BG","Bulgaria"],["SK","Slovakia"],["LT","Lithuania"],["LV","Latvia"],["EE","Estonia"],["SI","Slovenia"],["LU","Luxembourg"],["IS","Iceland"],["JP","Japan"],["KR","South Korea"],["AU","Australia"],["NZ","New Zealand"],["CA","Canada"],["BR","Brazil"],["MX","Mexico"],["AR","Argentina"],["IN","India"],["CN","China"],["HK","Hong Kong"],["SG","Singapore"],["TW","Taiwan"],["TH","Thailand"],["MY","Malaysia"],["ID","Indonesia"],["PH","Philippines"],["VN","Vietnam"],["IL","Israel"],["AE","UAE"],["SA","Saudi Arabia"],["TR","Turkey"],["ZA","South Africa"],["EG","Egypt"],["NG","Nigeria"],["KE","Kenya"],["RU","Russia"],["UA","Ukraine"]];
+const QUICK_PICKS=["SE","DK","NO","FI","DE","NL","GB"];
+const DURATION_PRESETS=[{l:"30 min",v:30},{l:"1 hr",v:60},{l:"2 hr",v:120},{l:"4 hr",v:240},{l:"8 hr",v:480},{l:"No timer",v:0}];
+const EXTEND_PRESETS=[{l:"+15m",v:15},{l:"+30m",v:30},{l:"+1hr",v:60},{l:"+2hr",v:120}];
+const gf=c=>FLAGS[c]||"🏳️";
+
+// ── API helpers ──
+const api=async(path,opts={})=>{
+  const r=await fetch(path,{headers:{"Content-Type":"application/json"},...opts});
+  return r.json();
+};
+
+// ── Time helpers ──
+const fmtRemaining=exp=>{
+  if(!exp)return null;
+  const d=new Date(exp).getTime()-Date.now();
+  if(d<=0)return"Expired";
+  const h=Math.floor(d/36e5),m=Math.floor((d%36e5)/6e4),s=Math.floor((d%6e4)/1e3);
+  return h>0?`${h}h ${m}m`:m>0?`${m}m ${s}s`:`${s}s`;
+};
+const fmtTime=iso=>{
+  if(!iso)return"—";
+  try{return new Date(iso).toLocaleTimeString([],{hour:"2-digit",minute:"2-digit",hour12:false})}catch{return iso}
+};
+const fmtUptime=secs=>{
+  const d=Math.floor(secs/86400),h=Math.floor((secs%86400)/3600),m=Math.floor((secs%3600)/60),s=secs%60;
+  return d>0?`${d}d ${h}h ${m}m`:`${h}h ${m}m ${s}s`;
+};
+
+// ── Styles ──
+const S={
+  app:{maxWidth:880,margin:"0 auto",padding:"24px 16px"},
+  hdr:{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:20},
+  hdrL:{display:"flex",alignItems:"center",gap:10},
+  logo:{width:38,height:38,borderRadius:8,background:"var(--bg2)",border:"1px solid var(--bdr)",display:"flex",alignItems:"center",justifyContent:"center",color:"var(--txt)",transition:"all .2s"},
+  logoOn:{background:"var(--grn-d)",borderColor:"var(--grn)",color:"var(--grn)"},
+  hdrR:{display:"flex",alignItems:"center",gap:8},
+  tbtn:{width:34,height:34,borderRadius:6,border:"1px solid var(--bdr)",background:"var(--bg2)",color:"var(--txt2)",display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",fontSize:14},
+  bdg:{display:"flex",alignItems:"center",gap:6,padding:"4px 12px",borderRadius:16,font:"700 11px var(--mono)",letterSpacing:"0.6px",border:"1px solid"},
+  bdgOff:{background:"var(--bg2)",color:"var(--txt3)",borderColor:"var(--bdr)"},
+  bdgOn:{background:"var(--grn-d)",color:"var(--grn)",borderColor:"var(--grn)"},
+  dot:{width:7,height:7,borderRadius:"50%",display:"inline-block"},
+  lay:{display:"grid",gap:16,alignItems:"start"},
+  cd:{background:"var(--bg2)",border:"1px solid var(--bdr)",borderRadius:14,padding:20,transition:"all .2s"},
+  lb:{display:"block",font:"600 11px var(--sans)",textTransform:"uppercase",letterSpacing:"0.7px",color:"var(--txt3)",marginBottom:10},
+  tgRow:{display:"flex",alignItems:"center",gap:10,marginBottom:10},
+  tg:{width:40,height:22,borderRadius:11,border:"1px solid var(--bdr)",background:"var(--bg4)",position:"relative",cursor:"pointer",transition:"all .2s",flexShrink:0},
+  tgOn:{background:"var(--grn-d)",borderColor:"var(--grn)"},
+  tgK:{width:16,height:16,borderRadius:"50%",background:"var(--txt2)",position:"absolute",top:2,left:2,transition:"all .2s"},
+  tgKOn:{left:20,background:"var(--grn)"},
+  cps:{display:"flex",flexWrap:"wrap",gap:7,alignItems:"center"},
+  cp:{display:"inline-flex",alignItems:"center",gap:5,padding:"6px 12px",borderRadius:6,fontSize:13,fontWeight:500,cursor:"pointer",border:"1px solid",transition:"all .15s"},
+  cpB:{borderColor:"var(--blu)",background:"var(--blu-d)",color:"var(--blu)"},
+  cpO:{borderColor:"var(--bdr)",background:"transparent",color:"var(--txt3)",borderStyle:"dashed"},
+  cpG:{borderColor:"var(--grn)",background:"var(--grn-d)",color:"var(--grn)"},
+  cpGi:{borderColor:"var(--bdr)",background:"transparent",color:"var(--txt3)"},
+  cpP:{borderColor:"var(--pur)",background:"var(--pur-d)",color:"var(--pur)",fontFamily:"var(--mono)",fontSize:12},
+  cpPi:{borderColor:"var(--bdr)",background:"transparent",color:"var(--txt2)",fontFamily:"var(--mono)",fontSize:12},
+  srch:{marginTop:10},
+  srchIn:{width:"100%",padding:"9px 12px",borderRadius:6,border:"1px solid var(--bdr)",background:"var(--bg4)",color:"var(--txt)",font:"400 13px var(--sans)",outline:"none"},
+  sr:{marginTop:4,background:"var(--bg2)",border:"1px solid var(--bdr)",borderRadius:6,maxHeight:180,overflowY:"auto"},
+  srItem:{padding:"8px 12px",fontSize:13,cursor:"pointer",display:"flex",alignItems:"center",gap:8},
+  ipTools:{display:"flex",flexWrap:"wrap",gap:7,marginBottom:10},
+  ipR:{display:"flex",gap:8,marginTop:10},
+  ipIn:{flex:1,padding:"9px 12px",borderRadius:6,border:"1px solid var(--bdr)",background:"var(--bg4)",color:"var(--txt)",font:"400 13px var(--mono)",outline:"none"},
+  ipAb:{padding:"9px 16px",borderRadius:6,border:"1px solid var(--bdr)",background:"var(--bg4)",color:"var(--txt)",font:"600 13px var(--sans)",cursor:"pointer"},
+  tags:{display:"flex",flexWrap:"wrap",gap:6,marginTop:10},
+  tag:{display:"inline-flex",alignItems:"center",gap:5,padding:"4px 10px",borderRadius:4,font:"400 12px var(--mono)",background:"var(--amb-d)",color:"var(--amb)"},
+  tagP:{background:"var(--pur-d)",color:"var(--pur)"},
+  tagG:{background:"var(--grn-d)",color:"var(--grn)"},
+  tagX:{background:"none",border:"none",color:"inherit",cursor:"pointer",fontSize:10,opacity:.5,padding:0},
+  hint:{fontSize:11,color:"var(--txt3)",marginTop:8,lineHeight:1.5},
+  dg:{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8},
+  db:{padding:"10px 8px",borderRadius:6,border:"1px solid var(--bdr)",background:"var(--bg4)",color:"var(--txt2)",font:"500 13px var(--mono)",cursor:"pointer",textAlign:"center",transition:"all .15s"},
+  dbA:{borderColor:"var(--blu)",background:"var(--blu-d)",color:"var(--blu)"},
+  btnGo:{width:"100%",padding:"13px 0",borderRadius:10,border:"none",background:"var(--grn)",color:"#0a0c10",font:"700 15px var(--mono)",letterSpacing:".4px",cursor:"pointer",marginTop:4},
+  btnStop:{width:"100%",padding:"13px 0",borderRadius:10,border:"1px solid var(--red)",background:"var(--red-d)",color:"var(--red)",font:"700 15px var(--mono)",letterSpacing:".4px",cursor:"pointer"},
+  tr:{display:"flex",gap:10,marginBottom:20},
+  tBlk:{flex:1,display:"flex",flexDirection:"column",alignItems:"center",gap:4,padding:"12px 8px",background:"var(--bg3)",borderRadius:6},
+  tLbl:{font:"600 10px var(--sans)",textTransform:"uppercase",letterSpacing:".5px",color:"var(--txt3)"},
+  tVal:{font:"700 24px var(--mono)",color:"var(--grn)"},
+  tValS:{font:"600 16px var(--mono)",color:"var(--txt)",marginTop:2},
+  fr:{display:"flex",alignItems:"center",gap:10,marginBottom:8},
+  fl:{font:"600 11px var(--sans)",textTransform:"uppercase",letterSpacing:".5px",color:"var(--txt3)",minWidth:68},
+  ft:{display:"flex",flexWrap:"wrap",gap:5},
+  ftg:{padding:"3px 9px",borderRadius:4,font:"400 12px var(--mono)",background:"var(--blu-d)",color:"var(--blu)"},
+  ftgP:{background:"var(--pur-d)",color:"var(--pur)"},
+  er:{display:"flex",alignItems:"center",gap:7,margin:"18px 0",flexWrap:"wrap"},
+  eb:{padding:"6px 12px",borderRadius:6,border:"1px solid var(--bdr)",background:"var(--bg3)",color:"var(--txt)",font:"500 12px var(--mono)",cursor:"pointer"},
+  sts:{background:"var(--bg2)",border:"1px solid var(--bdr)",borderRadius:14,padding:18},
+  stT:{font:"600 11px var(--sans)",textTransform:"uppercase",letterSpacing:".7px",color:"var(--txt3)",marginBottom:14},
+  si:{marginBottom:14},
+  sl:{font:"600 10px var(--sans)",textTransform:"uppercase",letterSpacing:".4px",color:"var(--txt3)",marginBottom:4},
+  sv:{font:"600 13px var(--mono)"},
+  sd:{height:1,background:"var(--bdr)",margin:"14px 0"},
+  le:{marginTop:16,padding:"9px 14px",borderRadius:6,background:"var(--bg2)",border:"1px solid var(--bdr)",fontSize:12,color:"var(--txt3)",textAlign:"center"},
+  ftr:{marginTop:20,textAlign:"center",font:"400 11px var(--mono)",color:"var(--txt3)"},
+  fg:{marginBottom:20},
+  modal:{position:"fixed",top:0,left:0,right:0,bottom:0,background:"rgba(0,0,0,.6)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:100,backdropFilter:"blur(4px)"},
+  modalBox:{background:"var(--bg2)",border:"1px solid var(--bdr)",borderRadius:14,padding:24,maxWidth:400,width:"90%",boxShadow:"0 20px 60px rgba(0,0,0,.4)"},
+  modalBtns:{display:"flex",gap:10,justifyContent:"flex-end",marginTop:20},
+  modalCancel:{padding:"9px 20px",borderRadius:8,font:"600 13px var(--sans)",cursor:"pointer",border:"1px solid var(--bdr)",background:"var(--bg4)",color:"var(--txt)"},
+  addLink:{fontSize:12,color:"var(--blu)",cursor:"pointer",marginTop:8,display:"inline-block"},
+  toast:{position:"fixed",top:16,left:"50%",transform:"translateX(-50%)",padding:"10px 20px",borderRadius:10,fontSize:13,fontWeight:600,zIndex:200,boxShadow:"0 4px 20px rgba(0,0,0,.3)"},
+  toastOk:{background:"var(--grn-d)",color:"var(--grn)",border:"1px solid var(--grn)"},
+  toastErr:{background:"var(--red-d)",color:"var(--red)",border:"1px solid var(--red)"},
+  errBox:{padding:"12px 16px",borderRadius:10,background:"var(--red-d)",color:"var(--red)",fontSize:13,border:"1px solid var(--red)",marginBottom:16,textAlign:"center"},
+  lm:{marginBottom:14,padding:14,background:"var(--bg3)",borderRadius:6,border:"1px solid var(--bdr)"},
+  lmH:{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10},
+  lmN:{font:"500 14px var(--mono)"},
+  lmA:{display:"flex",gap:8},
+  lmBtn:{background:"none",border:"none",color:"var(--txt3)",cursor:"pointer",fontSize:13,padding:2},
+};
+
+// ── Toggle Component ──
+function Toggle({on,onChange,label}){
+  return(
+    <div style={S.tgRow}>
+      <div style={{...S.tg,...(on?S.tgOn:{})}} onClick={onChange}>
+        <div style={{...S.tgK,...(on?S.tgKOn:{})}}/>
+      </div>
+      <span style={{fontSize:13,color:"var(--txt2)"}}>{label}</span>
+    </div>
+  );
+}
+
+// ── Chip Component ──
+function Chip({children,style,onClick}){
+  return <div style={{...S.cp,...style}} onClick={onClick}>{children}</div>;
+}
+
+// ── Modal Component ──
+function Modal({show,title,body,confirmLabel,confirmStyle,onConfirm,onCancel}){
+  if(!show)return null;
+  return(
+    <div style={S.modal} onClick={e=>{if(e.target===e.currentTarget)onCancel()}}>
+      <div style={S.modalBox}>
+        <h3 style={{font:"600 16px var(--sans)",marginBottom:10}}>{title}</h3>
+        <div style={{fontSize:13,color:"var(--txt2)",lineHeight:1.6}} dangerouslySetInnerHTML={{__html:body}}/>
+        <div style={S.modalBtns}>
+          <button style={S.modalCancel} onClick={onCancel}>Cancel</button>
+          <button style={{...S.modalCancel,...confirmStyle}} onClick={onConfirm}>{confirmLabel}</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Toast ──
+function Toast({msg,type}){
+  if(!msg)return null;
+  return <div style={{...S.toast,...(type==="error"?S.toastErr:S.toastOk)}}>{msg}</div>;
+}
+
+// ── Main App ──
+function App(){
+  const[dark,setDark]=useState(true);
+  const[status,setStatus]=useState(null);
+  const[stats,setStats]=useState(null);
+  const[ipLists,setIpLists]=useState({});
+  const[loading,setLoading]=useState(true);
+  const[err,setErr]=useState(null);
+  const[toast,setToast]=useState(null);
+  const[acting,setActing]=useState(false);
+  const[view,setView]=useState("main"); // main | lists
+  const[modal,setModal]=useState(null);
+  const toastTm=useRef(null);
+
+  // Form state
+  const[allCountries,setAllCountries]=useState(false);
+  const[selCountries,setSelCountries]=useState(new Set(["SE","DK"]));
+  const[extraCountries,setExtraCountries]=useState(new Set());
+  const[showCountrySearch,setShowCountrySearch]=useState(false);
+  const[countryQuery,setCountryQuery]=useState("");
+  const[anyIp,setAnyIp]=useState(true);
+  const[myIpActive,setMyIpActive]=useState(false);
+  const[myIpAddr,setMyIpAddr]=useState("");
+  const[activeIpLists,setActiveIpLists]=useState(new Set());
+  const[manualIps,setManualIps]=useState([]); // {ip,active}
+  const[showAddIp,setShowAddIp]=useState(false);
+  const[ipInput,setIpInput]=useState("");
+  const[duration,setDuration]=useState(120);
+
+  // IP list management
+  const[newListName,setNewListName]=useState("");
+  const[newListIpInput,setNewListIpInput]=useState("");
+  const[newListIps,setNewListIps]=useState([]);
+
+  const flash=(msg,type="success")=>{setToast({msg,type});clearTimeout(toastTm.current);toastTm.current=setTimeout(()=>setToast(null),4000)};
+
+  // Polling
+  const fetchAll=useCallback(async()=>{
+    try{
+      const[s,st,il]=await Promise.all([api("/status"),api("/stats"),api("/ip-lists")]);
+      setStatus(s);setStats(st);setIpLists(il);setErr(null);
+    }catch(e){setErr("Connection failed")}finally{setLoading(false)}
+  },[]);
+
+  useEffect(()=>{fetchAll();const iv=setInterval(fetchAll,3000);return()=>clearInterval(iv)},[fetchAll]);
+  useEffect(()=>{fetch("https://api.ipify.org?format=json").then(r=>r.json()).then(d=>setMyIpAddr(d.ip)).catch(()=>{})},[]);
+
+  // Theme
+  useEffect(()=>{document.documentElement.setAttribute("data-theme",dark?"dark":"light")},[dark]);
+
+  // Duplicate IP check
+  const ipExistsIn=(ip)=>{
+    if(myIpAddr&&ip===myIpAddr+"/32")return"My IP";
+    for(const[name,ips]of Object.entries(ipLists)){
+      if(ips.includes(ip))return name;
+    }
+    return null;
+  };
+
+  // Actions
+  const doEnable=async()=>{
+    setActing(true);setModal(null);
+    const ips=[...manualIps.filter(m=>m.active).map(m=>m.ip)];
+    if(myIpActive&&myIpAddr)ips.push(myIpAddr+"/32");
+    // Add IPs from active lists (resolved server-side)
+    const body={
+      allowed_countries:allCountries?[]:[...selCountries,...extraCountries],
+      all_countries:allCountries,
+      allowed_ips:ips,
+      allowed_ip_lists:[...activeIpLists],
+      duration_minutes:duration,
+    };
+    const r=await api("/enable",{method:"POST",body:JSON.stringify(body)});
+    setActing(false);
+    if(r.error){flash(r.error,"error")}else{setStatus(r);flash("Latch opened")}
+  };
+
+  const doDisable=async()=>{
+    setActing(true);setModal(null);
+    const r=await api("/disable",{method:"POST"});
+    setActing(false);
+    if(r.error){flash(r.error,"error")}else{setStatus(r);flash("Latch locked")}
+  };
+
+  const doExtend=async(mins)=>{
+    setActing(true);
+    const r=await api("/extend",{method:"POST",body:JSON.stringify({additional_minutes:mins})});
+    setActing(false);
+    if(r.error){flash(r.error,"error")}else{setStatus(r);flash(`Extended by ${mins} min`)}
+  };
+
+  // IP list CRUD
+  const saveList=async(name,ips)=>{
+    const r=await api(`/ip-lists/${encodeURIComponent(name)}`,{method:"PUT",body:JSON.stringify({ips})});
+    setIpLists(r);flash(`List "${name}" saved`);
+  };
+  const deleteList=async(name)=>{
+    const r=await api(`/ip-lists/${encodeURIComponent(name)}`,{method:"DELETE"});
+    if(r.error){flash(r.error,"error")}else{setIpLists(r);activeIpLists.delete(name);setActiveIpLists(new Set(activeIpLists));flash(`List "${name}" deleted`)}
+  };
+
+  const addManualIp=()=>{
+    const v=ipInput.trim();if(!v)return;
+    const f=v.includes("/")?v:v+"/32";
+    const dup=ipExistsIn(f);
+    if(dup){flash(`IP ${f} already exists in "${dup}"`,"error");return}
+    if(manualIps.some(m=>m.ip===f)){flash(`IP ${f} already added`,"error");return}
+    setManualIps([...manualIps,{ip:f,active:true}]);setIpInput("");
+  };
+
+  const toggleCountry=(c)=>{
+    const s=new Set(selCountries);
+    if(s.has(c))s.delete(c);else s.add(c);
+    setSelCountries(s);
+  };
+  const addExtraCountry=(c)=>{
+    setExtraCountries(new Set([...extraCountries,c]));
+    setSelCountries(new Set([...selCountries,c]));
+    setShowCountrySearch(false);setCountryQuery("");
+  };
+  const removeExtraCountry=(c)=>{
+    const e=new Set(extraCountries);e.delete(c);setExtraCountries(e);
+    const s=new Set(selCountries);s.delete(c);setSelCountries(s);
+  };
+
+  const confirmOpen=()=>{
+    const geo=allCountries?"All countries":([...selCountries,...extraCountries].map(c=>`${gf(c)} ${c}`).join(", ")||"None selected");
+    const ip=anyIp?"Any IP":"Specific IPs";
+    const dur=DURATION_PRESETS.find(p=>p.v===duration)?.l||`${duration} min`;
+    setModal({title:"Open the latch?",body:`Traffic will be allowed through with these settings:<br><br><strong>Countries:</strong> ${geo}<br><strong>IPs:</strong> ${ip}<br><strong>Duration:</strong> ${dur}`,confirm:"Open latch",style:{border:"none",background:"var(--grn)",color:"#0a0c10"},action:doEnable});
+  };
+  const confirmClose=()=>{
+    setModal({title:"Lock down?",body:"All public access will be blocked immediately. The WireGuard tunnel will be stopped and Caddy filters will be locked.",confirm:"Lock down",style:{borderColor:"var(--red)",background:"var(--red-d)",color:"var(--red)"},action:doDisable});
+  };
+
+  const isOpen=status?.enabled;
+
+  if(loading)return <div style={{...S.app,textAlign:"center",paddingTop:80,color:"var(--txt3)"}}>Connecting to CaddyLatch...</div>;
+
+  return(
+    <div style={S.app}>
+      <style>{`@media(min-width:700px){.lay{grid-template-columns:1fr 260px !important;gap:20px !important}.cd{padding:24px !important}}`}</style>
+      <Toast msg={toast?.msg} type={toast?.type}/>
+      <Modal show={!!modal} title={modal?.title} body={modal?.body} confirmLabel={modal?.confirm} confirmStyle={modal?.style} onConfirm={modal?.action} onCancel={()=>setModal(null)}/>
+
+      {/* Header */}
+      <div style={S.hdr}>
+        <div style={S.hdrL}>
+          <div style={{...S.logo,...(isOpen?S.logoOn:{})}}>
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+              <rect x="3" y="11" width="18" height="11" rx="2" ry="2"/>
+              <path d={isOpen?"M7 11V7a5 5 0 0 1 9.9-1":"M7 11V7a5 5 0 0 1 10 0v4"}/>
+            </svg>
+          </div>
+          <div>
+            <div style={{font:"700 18px var(--mono)",letterSpacing:"-.3px"}}>CaddyLatch</div>
+            <div style={{fontSize:11,color:"var(--txt3)",marginTop:2}}>Edge access controller</div>
+          </div>
+        </div>
+        <div style={S.hdrR}>
+          <button style={S.tbtn} onClick={()=>setDark(!dark)}>{dark?"☀️":"🌙"}</button>
+          <div style={{...S.bdg,...(isOpen?S.bdgOn:S.bdgOff)}}>
+            <div style={{...S.dot,background:isOpen?"var(--grn)":"var(--txt3)"}}/>
+            {isOpen?"OPEN":"LOCKED"}
+          </div>
+        </div>
+      </div>
+
+      {err&&<div style={S.errBox}>{err}</div>}
+
+      <div className="lay" style={S.lay}>
+        <div>
+          {/* ── LOCKED / ENABLE FORM ── */}
+          {!isOpen&&view==="main"&&(
+            <div className="cd" style={S.cd}>
+              {/* Countries */}
+              <div style={S.fg}>
+                <div style={S.lb}>Allowed countries</div>
+                <Toggle on={allCountries} onChange={()=>setAllCountries(!allCountries)} label={allCountries?"All countries (no geo restriction)":"Select specific countries"}/>
+                {!allCountries&&<>
+                  <div style={{...S.lb,fontSize:10,margin:"4px 0 8px"}}>Quick picks</div>
+                  <div style={S.cps}>
+                    {QUICK_PICKS.map(c=>(
+                      <Chip key={c} style={selCountries.has(c)?S.cpB:S.cpO} onClick={()=>toggleCountry(c)}>
+                        {gf(c)} {c} {selCountries.has(c)&&<span style={{opacity:.5,fontSize:11}}>✕</span>}
+                      </Chip>
+                    ))}
+                    {[...extraCountries].filter(c=>!QUICK_PICKS.includes(c)).map(c=>(
+                      <Chip key={c} style={S.cpB} onClick={()=>removeExtraCountry(c)}>
+                        {gf(c)} {c} <span style={{opacity:.5,fontSize:11}}>✕</span>
+                      </Chip>
+                    ))}
+                    <Chip style={S.cpO} onClick={()=>setShowCountrySearch(!showCountrySearch)}>Other...</Chip>
+                  </div>
+                  {showCountrySearch&&(
+                    <div style={S.srch}>
+                      <input style={S.srchIn} placeholder="Search countries..." value={countryQuery} onChange={e=>setCountryQuery(e.target.value)} autoFocus/>
+                      <div style={S.sr}>
+                        {ALL_COUNTRIES.filter(([c,n])=>!selCountries.has(c)&&!extraCountries.has(c)&&(n.toLowerCase().includes(countryQuery.toLowerCase())||c.toLowerCase().includes(countryQuery.toLowerCase()))).slice(0,10).map(([c,n])=>(
+                          <div key={c} style={S.srItem} onClick={()=>addExtraCountry(c)} onMouseOver={e=>e.currentTarget.style.background="var(--bg3)"} onMouseOut={e=>e.currentTarget.style.background=""}>
+                            {gf(c)} {c} — {n}
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </>}
+              </div>
+
+              {/* IPs */}
+              <div style={S.fg}>
+                <div style={S.lb}>Allowed IPs</div>
+                <Toggle on={anyIp} onChange={()=>setAnyIp(!anyIp)} label={anyIp?"Any IP (no restriction)":"Restrict to specific IPs"}/>
+                {!anyIp&&<>
+                  <div style={S.ipTools}>
+                    <Chip style={myIpActive?S.cpG:S.cpGi} onClick={()=>setMyIpActive(!myIpActive)}>
+                      ⚡ My IP <span style={{opacity:.6,fontFamily:"var(--mono)",fontSize:11}}>({myIpAddr||"detecting..."})</span>
+                    </Chip>
+                    {Object.entries(ipLists).map(([name,ips])=>(
+                      <Chip key={name} style={activeIpLists.has(name)?S.cpP:S.cpPi} onClick={()=>{const s=new Set(activeIpLists);if(s.has(name))s.delete(name);else s.add(name);setActiveIpLists(s)}}>
+                        📁 {name} <span style={{opacity:.5,fontSize:10}}>({ips.length})</span>
+                      </Chip>
+                    ))}
+                    <Chip style={{...S.cpO,fontSize:12}} onClick={()=>setView("lists")}>⚙ Manage</Chip>
+                  </div>
+
+                  {/* My IP tag */}
+                  {myIpActive&&myIpAddr&&(
+                    <div style={S.tags}>
+                      <span style={{...S.tag,...S.tagG}}>{myIpAddr}/32 <span style={{opacity:.5,fontSize:10,marginLeft:2}}>My IP</span></span>
+                    </div>
+                  )}
+
+                  {/* Manual IPs as toggleable chips */}
+                  {manualIps.length>0&&(
+                    <div style={{...S.cps,marginTop:10}}>
+                      {manualIps.map((m,i)=>(
+                        <Chip key={m.ip} style={m.active?{...S.cp,borderColor:"var(--amb)",background:"var(--amb-d)",color:"var(--amb)",fontFamily:"var(--mono)",fontSize:12}:{...S.cpPi}} onClick={()=>{const n=[...manualIps];n[i]={...n[i],active:!n[i].active};setManualIps(n)}}>
+                          {m.ip}
+                          <span style={{opacity:.5,fontSize:10,cursor:"pointer"}} onClick={e=>{e.stopPropagation();setManualIps(manualIps.filter((_,j)=>j!==i))}}>✕</span>
+                        </Chip>
+                      ))}
+                    </div>
+                  )}
+
+                  {/* Add other IPs */}
+                  <div style={S.addLink} onClick={()=>setShowAddIp(!showAddIp)}>{showAddIp?"− Hide":"+ Add other IPs"}</div>
+                  {showAddIp&&(
+                    <div style={S.ipR}>
+                      <input style={S.ipIn} placeholder="203.0.113.10 or /24" value={ipInput} onChange={e=>setIpInput(e.target.value)} onKeyDown={e=>{if(e.key==="Enter")addManualIp()}}/>
+                      <button style={S.ipAb} onClick={addManualIp}>Add</button>
+                    </div>
+                  )}
+                  <div style={S.hint}>IPs from active lists are included automatically.</div>
+                </>}
+              </div>
+
+              {/* Duration */}
+              <div style={S.fg}>
+                <div style={S.lb}>Duration</div>
+                <div style={{...S.hint,marginTop:0,marginBottom:10}}>How long should the latch stay open before auto-locking?</div>
+                <div style={S.dg}>
+                  {DURATION_PRESETS.map(p=>(
+                    <div key={p.v} style={{...S.db,...(duration===p.v?S.dbA:{})}} onClick={()=>setDuration(p.v)}>{p.l}</div>
+                  ))}
+                </div>
+              </div>
+
+              <button style={S.btnGo} onClick={confirmOpen} disabled={acting}>{acting?"Opening...":"Open latch"}</button>
+            </div>
+          )}
+
+          {/* ── OPEN STATE ── */}
+          {isOpen&&view==="main"&&(
+            <div className="cd" style={S.cd}>
+              <div style={S.tr}>
+                {status.expires?(
+                  <>
+                    <div style={S.tBlk}><span style={S.tLbl}>Time remaining</span><span style={S.tVal}>{fmtRemaining(status.expires)}</span></div>
+                    <div style={S.tBlk}><span style={S.tLbl}>Expires at</span><span style={S.tValS}>{fmtTime(status.expires)}</span></div>
+                  </>
+                ):(
+                  <div style={{...S.tBlk,flex:2}}><span style={S.tLbl}>Timer</span><span style={{...S.tVal,fontSize:20}}>∞ No timer</span></div>
+                )}
+                <div style={S.tBlk}><span style={S.tLbl}>WireGuard</span><span style={{...S.tValS,color:status.wg_up?"var(--grn)":"var(--red)"}}>{status.wg_up?"UP":"DOWN"}</span></div>
+              </div>
+
+              <div style={{marginBottom:14}}>
+                <div style={S.fr}>
+                  <span style={S.fl}>Countries</span>
+                  <div style={S.ft}>
+                    {status.all_countries?<span style={S.ftg}>All countries</span>:
+                      status.allowed_countries?.map(c=><span key={c} style={S.ftg}>{gf(c)} {c}</span>)}
+                    {!status.all_countries&&status.allowed_countries?.length===0&&<span style={S.ftg}>None</span>}
+                  </div>
+                </div>
+                <div style={S.fr}>
+                  <span style={S.fl}>IPs</span>
+                  <div style={S.ft}>
+                    {status.allowed_ips?.length===0&&status.allowed_ip_lists?.length===0?
+                      <span style={S.ftg}>Any</span>:
+                      <>
+                        {status.allowed_ips?.map(ip=><span key={ip} style={S.ftg}>{ip}</span>)}
+                        {status.allowed_ip_lists?.map(n=><span key={n} style={{...S.ftg,...S.ftgP}}>{n} ({ipLists[n]?.length||"?"})</span>)}
+                      </>
+                    }
+                  </div>
+                </div>
+              </div>
+
+              {status.expires&&(
+                <div style={S.er}>
+                  <span style={{font:"600 12px var(--sans)",color:"var(--txt3)"}}>Extend:</span>
+                  {EXTEND_PRESETS.map(p=><button key={p.v} style={S.eb} onClick={()=>doExtend(p.v)} disabled={acting}>{p.l}</button>)}
+                </div>
+              )}
+
+              <button style={S.btnStop} onClick={confirmClose} disabled={acting}>{acting?"Locking...":"Lock down"}</button>
+            </div>
+          )}
+
+          {/* ── IP LISTS MANAGEMENT ── */}
+          {view==="lists"&&(
+            <div className="cd" style={S.cd}>
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16}}>
+                <div style={S.lb}>Manage IP lists</div>
+                <Chip style={{...S.cpO,fontSize:11,padding:"4px 10px"}} onClick={()=>setView("main")}>← Back</Chip>
+              </div>
+
+              {Object.entries(ipLists).map(([name,ips])=>(
+                <div key={name} style={S.lm}>
+                  <div style={S.lmH}>
+                    <div style={S.lmN}>{name}</div>
+                    <div style={S.lmA}>
+                      <button style={S.lmBtn} onClick={()=>deleteList(name)} title="Delete">🗑️</button>
+                    </div>
+                  </div>
+                  <div style={{...S.tags,marginTop:0}}>
+                    {ips.map(ip=><span key={ip} style={{...S.tag,...S.tagP}}>{ip}</span>)}
+                  </div>
+                </div>
+              ))}
+
+              {Object.keys(ipLists).length===0&&<div style={{...S.hint,marginBottom:14}}>No IP lists created yet.</div>}
+
+              <div style={{marginTop:16,paddingTop:14,borderTop:"1px solid var(--bdr)"}}>
+                <div style={{...S.lb,fontSize:10}}>Create new list</div>
+                <div style={{display:"flex",gap:8}}>
+                  <input style={{...S.ipIn,fontFamily:"var(--sans)"}} placeholder="List name" value={newListName} onChange={e=>setNewListName(e.target.value)}/>
+                </div>
+                <div style={S.ipR}>
+                  <input style={S.ipIn} placeholder="Add IP to list" value={newListIpInput} onChange={e=>setNewListIpInput(e.target.value)} onKeyDown={e=>{if(e.key==="Enter"){const v=newListIpInput.trim();if(v){const f=v.includes("/")?v:v+"/32";if(!newListIps.includes(f)){setNewListIps([...newListIps,f])}setNewListIpInput("")}}}}/>
+                  <button style={S.ipAb} onClick={()=>{const v=newListIpInput.trim();if(v){const f=v.includes("/")?v:v+"/32";if(!newListIps.includes(f)){setNewListIps([...newListIps,f])}setNewListIpInput("")}}}>Add</button>
+                </div>
+                {newListIps.length>0&&(
+                  <div style={S.tags}>
+                    {newListIps.map(ip=><span key={ip} style={{...S.tag,...S.tagP}}>{ip}<button style={S.tagX} onClick={()=>setNewListIps(newListIps.filter(i=>i!==ip))}>✕</button></span>)}
+                  </div>
+                )}
+                <button style={{...S.btnGo,fontSize:13,padding:"10px 0",marginTop:12}} onClick={()=>{
+                  if(!newListName.trim()){flash("Enter a list name","error");return}
+                  if(newListIps.length===0){flash("Add at least one IP","error");return}
+                  saveList(newListName.trim(),newListIps);setNewListName("");setNewListIps([]);
+                }}>Create list</button>
+              </div>
+            </div>
+          )}
+
+          {/* Last event */}
+          {!isOpen&&view==="main"&&status?.disabled_reason&&(
+            <div style={S.le}>Last closed: {status.disabled_reason}{status.last_closed?` at ${fmtTime(status.last_closed)}`:""}</div>
+          )}
+        </div>
+
+        {/* ── Stats sidebar ── */}
+        <div>
+          <div style={S.sts}>
+            <div style={S.stT}>Stats</div>
+            {isOpen&&stats?.session_uptime_seconds!=null&&<>
+              <div style={S.si}><div style={S.sl}>Session uptime</div><div style={{...S.sv,color:"var(--grn)"}}>{fmtUptime(stats.session_uptime_seconds)}</div></div>
+              <div style={S.sd}/>
+            </>}
+            <div style={S.si}><div style={S.sl}>Last opened</div><div style={S.sv}>{stats?.last_opened?fmtTime(stats.last_opened):"—"}</div></div>
+            <div style={S.si}><div style={S.sl}>Last closed</div><div style={S.sv}>{stats?.last_closed?fmtTime(stats.last_closed):"—"}</div></div>
+            {isOpen&&stats?.wg_latest_handshake&&<>
+              <div style={S.sd}/>
+              <div style={S.si}><div style={S.sl}>WG handshake</div><div style={S.sv}>{stats.wg_latest_handshake}</div></div>
+              <div style={S.si}><div style={S.sl}>WG transfer ↑</div><div style={S.sv}>{stats.wg_transfer_tx||"—"}</div></div>
+              <div style={S.si}><div style={S.sl}>WG transfer ↓</div><div style={S.sv}>{stats.wg_transfer_rx||"—"}</div></div>
+            </>}
+            <div style={S.sd}/>
+            <div style={S.si}><div style={S.sl}>Agent uptime</div><div style={S.sv}>{stats?fmtUptime(stats.agent_uptime_seconds):"—"}</div></div>
+            <div style={{...S.si,marginBottom:0}}><div style={S.sl}>Version</div><div style={{...S.sv,color:"var(--txt3)"}}>{status?.version||"—"}</div></div>
+          </div>
+        </div>
+      </div>
+
+      <div style={S.ftr}>CaddyLatch — on-demand edge access controller</div>
+    </div>
+  );
+}
+
+ReactDOM.render(<App/>,document.getElementById("root"));
+</script>
+</body>
+</html>
