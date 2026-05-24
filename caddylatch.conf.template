@@ -23,7 +23,6 @@ geoip_db_path=/var/lib/GeoIP/GeoLite2-Country.mmdb
 caddy_reload_cmd=systemctl reload caddy
 
 # WireGuard tunnel peer IP to exempt from geo filtering
-# (the home proxy connects from this IP and has no GeoIP classification)
 wg_peer_ip=10.100.0.1
 
 # --- Timer ---
@@ -58,6 +57,11 @@ ntfy_priority=3
 # ntfy priority for backstop/alert events (1-5)
 ntfy_alert_priority=5
 
+# --- Display ---
+# Timezone for human-readable timestamps in notifications
+# Uses IANA timezone names (e.g., Europe/Stockholm, America/New_York)
+display_timezone=UTC
+
 # --- Healthchecks ---
 # Healthchecks.io ping URL for dead man's switch (leave empty to disable)
 healthchecks_url=
@@ -65,6 +69,9 @@ healthchecks_url=
 # --- State Persistence ---
 # Path to the persisted state file
 state_file=/var/lib/caddylatch/state.json
+
+# Path to the saved IP lists file
+ip_lists_file=/var/lib/caddylatch/ip-lists.json
 
 # --- Logging ---
 log_file=/var/log/caddylatch/caddylatch.log

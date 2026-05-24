@@ -1,15 +1,8 @@
 #!/usr/bin/env bash
-#
-# install.sh — Install or upgrade CaddyLatch
-#
-# Creates directories, symlinks executable, installs systemd unit,
-# and manages config with smart merge on upgrades.
-#
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 
-# Paths
 EXECUTABLE_SRC="${SCRIPT_DIR}/caddylatch"
 EXECUTABLE_DST="/usr/local/sbin/caddylatch"
 CONFIG_TEMPLATE="${SCRIPT_DIR}/caddylatch.conf.template"
@@ -21,22 +14,12 @@ STATE_DIR="/var/lib/caddylatch"
 LOG_DIR="/var/log/caddylatch"
 CADDY_FILTER="/etc/caddy/filter-caddylatch.caddy"
 
-# Colors
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-YELLOW='\033[1;33m'
-CYAN='\033[0;36m'
-NC='\033[0m'
-
+RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'; CYAN='\033[0;36m'; NC='\033[0m'
 info()  { echo -e "${GREEN}[INFO]${NC}  $*"; }
 warn()  { echo -e "${YELLOW}[WARN]${NC}  $*"; }
 error() { echo -e "${RED}[ERROR]${NC} $*"; }
 
-# --- Root check ---
-if [[ $EUID -ne 0 ]]; then
-    error "Must be run as root"
-    exit 1
-fi
+if [[ $EUID -ne 0 ]]; then error "Must be run as root"; exit 1; fi
 
 echo ""
 echo -e "${CYAN}╔══════════════════════════════════════╗${NC}"
@@ -44,63 +27,44 @@ echo -e "${CYAN}║       CaddyLatch Installer           ║${NC}"
 echo -e "${CYAN}╚══════════════════════════════════════╝${NC}"
 echo ""
 
-# --- Directories ---
+# Directories
 info "Creating directories..."
-mkdir -p "${CONFIG_DIR}"
-mkdir -p "${STATE_DIR}"
-mkdir -p "${LOG_DIR}"
-chmod 750 "${CONFIG_DIR}"
-chmod 750 "${STATE_DIR}"
-chmod 750 "${LOG_DIR}"
+mkdir -p "${CONFIG_DIR}" "${STATE_DIR}" "${LOG_DIR}"
+chmod 750 "${CONFIG_DIR}" "${STATE_DIR}" "${LOG_DIR}"
 
-# --- Config management ---
+# Config merge
 config_merge() {
-    local template="$1"
-    local existing="$2"
-
-    # Trim leading/trailing whitespace without xargs (xargs chokes on quotes)
+    local template="$1" existing="$2"
     trim() { local v="$1"; v="${v#"${v%%[![:space:]]*}"}"; v="${v%"${v##*[![:space:]]}"}"; echo "$v"; }
 
-    # Parse keys from template
-    declare -A tmpl_keys
+    declare -A tmpl_keys exist_keys exist_values
     while IFS= read -r line; do
-        line_trimmed="$(trim "$line")"
-        [[ -z "$line_trimmed" || "$line_trimmed" == \#* ]] && continue
-        if [[ "$line_trimmed" == *=* ]]; then
-            key="$(trim "${line_trimmed%%=*}")"
-            val="$(trim "${line_trimmed#*=}")"
-            tmpl_keys["$key"]="$val"
+        local lt; lt="$(trim "$line")"
+        [[ -z "$lt" || "$lt" == \#* ]] && continue
+        if [[ "$lt" == *=* ]]; then
+            local k; k="$(trim "${lt%%=*}")"
+            local v; v="$(trim "${lt#*=}")"
+            tmpl_keys["$k"]="$v"
         fi
     done < "$template"
 
-    # Parse keys from existing config
-    declare -A exist_keys
-    declare -A exist_values
     while IFS= read -r line; do
-        line_trimmed="$(trim "$line")"
-        [[ -z "$line_trimmed" || "$line_trimmed" == \#* ]] && continue
-        if [[ "$line_trimmed" == *=* ]]; then
-            key="$(trim "${line_trimmed%%=*}")"
-            val="$(trim "${line_trimmed#*=}")"
-            exist_keys["$key"]=1
-            exist_values["$key"]="$val"
+        local lt; lt="$(trim "$line")"
+        [[ -z "$lt" || "$lt" == \#* ]] && continue
+        if [[ "$lt" == *=* ]]; then
+            local k; k="$(trim "${lt%%=*}")"
+            local v; v="$(trim "${lt#*=}")"
+            exist_keys["$k"]=1
+            exist_values["$k"]="$v"
         fi
     done < "$existing"
 
-    # Find new keys (in template, not in existing)
-    local new_keys=()
-    for key in "${!tmpl_keys[@]}"; do
-        if [[ -z "${exist_keys[$key]+x}" ]]; then
-            new_keys+=("$key")
-        fi
+    local new_keys=() removed_keys=()
+    for k in "${!tmpl_keys[@]}"; do
+        [[ -z "${exist_keys[$k]+x}" ]] && new_keys+=("$k")
     done
-
-    # Find removed keys (in existing, not in template)
-    local removed_keys=()
-    for key in "${!exist_keys[@]}"; do
-        if [[ -z "${tmpl_keys[$key]+x}" ]]; then
-            removed_keys+=("$key")
-        fi
+    for k in "${!exist_keys[@]}"; do
+        [[ -z "${tmpl_keys[$k]+x}" ]] && removed_keys+=("$k")
     done
 
     if [[ ${#new_keys[@]} -eq 0 && ${#removed_keys[@]} -eq 0 ]]; then
@@ -111,19 +75,13 @@ config_merge() {
     echo ""
     echo -e "${CYAN}Config schema changes detected:${NC}"
     echo ""
-
     if [[ ${#new_keys[@]} -gt 0 ]]; then
         echo -e "  ${GREEN}New settings:${NC}"
-        for key in "${new_keys[@]}"; do
-            echo -e "    + ${key}=${tmpl_keys[$key]}"
-        done
+        for k in "${new_keys[@]}"; do echo -e "    + ${k}=${tmpl_keys[$k]}"; done
     fi
-
     if [[ ${#removed_keys[@]} -gt 0 ]]; then
         echo -e "  ${RED}Removed settings:${NC}"
-        for key in "${removed_keys[@]}"; do
-            echo -e "    - ${key}=${exist_values[$key]}"
-        done
+        for k in "${removed_keys[@]}"; do echo -e "    - ${k}=${exist_values[$k]}"; done
     fi
 
     echo ""
@@ -137,42 +95,27 @@ config_merge() {
     case "$choice" in
         1)
             info "Merging config..."
-            local tmp_config
-            tmp_config="$(mktemp)"
-
+            local tmp; tmp="$(mktemp)"
             while IFS= read -r line; do
-                line_trimmed="$(trim "$line")"
-                if [[ -z "$line_trimmed" || "$line_trimmed" == \#* ]]; then
-                    echo "$line" >> "$tmp_config"
-                    continue
-                fi
-                if [[ "$line_trimmed" == *=* ]]; then
-                    key="$(trim "${line_trimmed%%=*}")"
-                    if [[ -n "${exist_values[$key]+x}" ]]; then
-                        echo "${key}=${exist_values[$key]}" >> "$tmp_config"
+                local lt; lt="$(trim "$line")"
+                if [[ -z "$lt" || "$lt" == \#* ]]; then echo "$line" >> "$tmp"; continue; fi
+                if [[ "$lt" == *=* ]]; then
+                    local k; k="$(trim "${lt%%=*}")"
+                    if [[ -n "${exist_values[$k]+x}" ]]; then
+                        echo "${k}=${exist_values[$k]}" >> "$tmp"
                     else
-                        echo "$line" >> "$tmp_config"
+                        echo "$line" >> "$tmp"
                     fi
                 else
-                    echo "$line" >> "$tmp_config"
+                    echo "$line" >> "$tmp"
                 fi
             done < "$template"
-
-            cp "$tmp_config" "$existing"
-            rm -f "$tmp_config"
+            cp "$tmp" "$existing"; rm -f "$tmp"
             info "Config merged successfully."
             ;;
-        2)
-            warn "Overwriting config with template..."
-            cp "$template" "$existing"
-            info "Config overwritten."
-            ;;
-        3)
-            info "Keeping existing config unchanged."
-            ;;
-        *)
-            warn "Invalid choice — keeping existing config."
-            ;;
+        2) warn "Overwriting..."; cp "$template" "$existing"; info "Config overwritten." ;;
+        3) info "Keeping existing config unchanged." ;;
+        *) warn "Invalid choice — keeping existing config." ;;
     esac
 }
 
@@ -185,24 +128,21 @@ else
 fi
 chmod 600 "$CONFIG_DST"
 
-# --- Executable ---
+# Executable
 info "Symlinking executable..."
 chmod +x "$EXECUTABLE_SRC"
 ln -sf "$EXECUTABLE_SRC" "$EXECUTABLE_DST"
 
-# --- Systemd ---
+# Systemd
 info "Installing systemd service..."
 cp "$SERVICE_SRC" "$SERVICE_DST"
 systemctl daemon-reload
 
-# --- Caddy filter file ---
+# Caddy filter file
 if [[ ! -f "$CADDY_FILTER" ]]; then
     info "Creating locked filter file: ${CADDY_FILTER}"
     cat > "$CADDY_FILTER" << 'EOF'
 # Managed by CaddyLatch — do not edit manually.
-# This file is regenerated on every state change.
-
-# STATE: LOCKED — CaddyLatch has not been started yet
 (geo_filter) {
     @geo_blocked {
         not remote_ip 127.0.0.1/32
@@ -214,45 +154,26 @@ if [[ ! -f "$CADDY_FILTER" ]]; then
 EOF
 fi
 
-# --- Check for existing geo_filter in Caddyfile ---
-echo ""
+# Check Caddyfile
 CADDYFILE="/etc/caddy/Caddyfile"
-if [[ -f "$CADDYFILE" ]]; then
-    if grep -q "(geo_filter)" "$CADDYFILE"; then
-        warn "Your Caddyfile contains a (geo_filter) snippet definition."
-        echo ""
-        echo "  CaddyLatch manages geo_filter dynamically via ${CADDY_FILTER}."
-        echo "  You need to:"
-        echo "    1. Remove the (geo_filter) snippet from ${CADDYFILE}"
-        echo "    2. Add this import line in its place:"
-        echo ""
-        echo -e "       ${CYAN}import /etc/caddy/filter-caddylatch.caddy${NC}"
-        echo ""
-        echo "  All site blocks that 'import geo_filter' will continue working"
-        echo "  unchanged — CaddyLatch provides the same snippet name."
-        echo ""
-    fi
+if [[ -f "$CADDYFILE" ]] && grep -q "(geo_filter)" "$CADDYFILE"; then
+    echo ""
+    warn "Your Caddyfile contains a (geo_filter) snippet definition."
+    echo "  CaddyLatch manages geo_filter dynamically via ${CADDY_FILTER}."
+    echo "  Replace the (geo_filter) snippet in ${CADDYFILE} with:"
+    echo ""
+    echo -e "       ${CYAN}import /etc/caddy/filter-caddylatch.caddy${NC}"
+    echo ""
 fi
 
+echo ""
 echo -e "${CYAN}╔══════════════════════════════════════╗${NC}"
 echo -e "${CYAN}║       Installation complete          ║${NC}"
 echo -e "${CYAN}╚══════════════════════════════════════╝${NC}"
 echo ""
 echo "Next steps:"
-echo "  1. Edit ${CONFIG_DST}"
-echo "     - Set listen_host to your Tailscale IP"
-echo "     - Set ntfy_url and ntfy_topic"
-echo "     - Set healthchecks_url (optional)"
-echo ""
-echo "  2. Update Caddy to use CaddyLatch's filter:"
-echo "     - Remove (geo_filter) snippet from Caddyfile"
-echo "     - Add: import /etc/caddy/filter-caddylatch.caddy"
-echo "     - Reload: sudo systemctl reload caddy"
-echo ""
-echo "  3. Start CaddyLatch:"
-echo "     sudo systemctl enable --now caddylatch"
-echo ""
-echo "  4. Verify:"
-echo "     curl -s http://<tailscale-ip>:8450/health"
-echo "     curl -s http://<tailscale-ip>:8450/status"
+echo "  1. Edit ${CONFIG_DST} — set listen_host, ntfy settings"
+echo "  2. Update Caddy: import /etc/caddy/filter-caddylatch.caddy"
+echo "  3. Start: sudo systemctl enable --now caddylatch"
+echo "  4. Verify: curl -s http://<tailscale-ip>:8450/health"
 echo ""

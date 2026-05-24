@@ -11,60 +11,31 @@ CaddyLatch controls two things on your edge VPS:
 1. **WireGuard tunnel** — up when open, down when locked
 2. **Caddy geo/IP filter** — dynamically written, blocks everything when locked
 
-When you open the latch, traffic matching your specified countries and IPs flows through. When the timer expires (or you close it manually), both layers lock down. Your services disappear from the internet.
+When you open the latch, traffic matching your specified countries and IPs flows through. When the timer expires (or you close it manually), both layers lock down.
 
 ## Requirements
 
 - **Caddy** with [caddy-maxmind-geolocation](https://github.com/porech/caddy-maxmind-geolocation) plugin
 - **WireGuard** managed by `wg-quick` systemd units
-- **MaxMind GeoLite2-Country** database (for geo filtering)
+- **MaxMind GeoLite2-Country** database
 - **Python 3.10+** (stdlib only, no pip dependencies)
-
-## Architecture
-
-```
-You (phone/laptop)                   Edge VPS                    Home
-     │                                  │                          │
-     │  toggle via web app              │                          │
-     │  or curl (Tailscale)             │                          │
-     ├──────────────────────►  CaddyLatch API (:8450)              │
-     │                          │  start/stop WireGuard            │
-     │                          │  write Caddy filters             │
-     │                          │  enforce timer                   │
-     │                          │                                  │
-     │                        Caddy (geo + IP filter)              │
-Work laptop ──────────────►     │                                  │
-     (when latch is open)       ├──── WireGuard tunnel ──────────► Caddy (home)
-                                │                                  │  ──► services
-```
-
-- **Control plane:** Tailscale (or any trusted network) — API never publicly exposed
-- **Data plane:** WireGuard — only active when latch is open
-- Home-side WireGuard stays always-on; CaddyLatch on the VPS is the sole gatekeeper
 
 ## Install
 
 ```bash
 git clone https://github.com/yourorg/caddylatch.git /opt/caddylatch
 cd /opt/caddylatch
-sudo ./install.sh
+sudo bash install.sh
 ```
 
-Edit `/etc/caddylatch/caddylatch.conf`:
-```
-listen_host=100.x.x.x          # Your Tailscale IP
-ntfy_url=https://ntfy.example.com
-ntfy_topic=caddylatch
-```
+Edit `/etc/caddylatch/caddylatch.conf`, then update your Caddyfile to replace the static `(geo_filter)` snippet with:
 
-Update your Caddyfile — replace the static `(geo_filter)` snippet with:
 ```
 import /etc/caddy/filter-caddylatch.caddy
 ```
 
-All site blocks that `import geo_filter` continue working unchanged.
+Start:
 
-Start it:
 ```bash
 sudo systemctl enable --now caddylatch
 sudo systemctl reload caddy
@@ -74,60 +45,68 @@ sudo systemctl reload caddy
 
 All endpoints are JSON. No authentication — access is network-restricted (Tailscale/localhost).
 
-### GET /health
-Health check. Always returns `200`.
+### Core
 
-### GET /status
-Current latch state including WireGuard status.
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` | `/health` | Health check |
+| `GET` | `/status` | Current state + WireGuard status |
+| `GET` | `/stats` | Operational stats (uptime, WG transfer, etc.) |
+| `POST` | `/enable` | Open the latch |
+| `POST` | `/disable` | Close the latch |
+| `POST` | `/extend` | Add time to current session |
+| `POST` | `/update-filters` | Change filters mid-session |
+
+### IP Lists
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` | `/ip-lists` | Get all saved IP lists |
+| `PUT` | `/ip-lists/{name}` | Create or update a list |
+| `DELETE` | `/ip-lists/{name}` | Delete a list |
 
 ### POST /enable
-Open the latch.
+
 ```json
 {
-  "allowed_ips": ["203.0.113.10/32"],
   "allowed_countries": ["SE", "DK"],
+  "all_countries": false,
+  "allowed_ips": ["203.0.113.10/32"],
+  "allowed_ip_lists": ["Work IPs"],
   "duration_minutes": 120
 }
 ```
-Both `allowed_ips` and `allowed_countries` are optional, but at least one is required. If both are specified, traffic must match **both** (allowed country AND allowed IP).
 
-### POST /disable
-Close the latch immediately.
+- `all_countries: true` — disables geo filtering entirely
+- `allowed_ip_lists` — references saved IP lists by name, resolved at enable time
+- `duration_minutes: 0` — no timer, stays open until manual disable
+- `duration_minutes: null` — uses configured default
 
-### POST /extend
-Add time to the current session.
+### PUT /ip-lists/{name}
+
 ```json
 {
-  "additional_minutes": 60
+  "ips": ["10.0.1.0/24", "10.0.2.0/24"]
 }
 ```
 
-### POST /update-filters
-Change allowed IPs/countries without restarting the timer.
-```json
-{
-  "allowed_ips": ["203.0.113.10/32", "203.0.113.11/32"],
-  "allowed_countries": ["SE"]
-}
-```
+Creates the list if it doesn't exist, updates it if it does.
 
 ## Safety features
 
-- **Auto-close timer** — the latch locks itself after the configured duration
-- **Max duration cap** — cannot extend beyond `max_duration_minutes`
-- **Reboot persistence** — remembers state across restarts; if timer expired while offline, locks immediately on startup
-- **Notifications** — ntfy alerts on every state change + periodic "still open" reminders
-- **Healthchecks.io** — dead man's switch; alerts if the agent stops running
-- **Double kill switch** — WireGuard down AND Caddy filters locked when disabled
+- **Auto-close timer** — locks after configured duration
+- **Max duration cap** — cannot extend beyond limit
+- **Reboot persistence** — remembers state; expired-while-offline = immediate lock
+- **Double kill switch** — WireGuard down AND Caddy filters locked
+- **Notifications** — ntfy on every state change + periodic reminders
+- **Healthchecks.io** — dead man's switch
 
 ## Uninstall
 
 ```bash
 cd /opt/caddylatch
-sudo ./uninstall.sh
+sudo bash uninstall.sh
 ```
-
-Restore your original `(geo_filter)` snippet in the Caddyfile and reload Caddy.
 
 ## License
 
