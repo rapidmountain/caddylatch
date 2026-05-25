@@ -69,7 +69,7 @@ DEFAULT_CONFIG = {
     "caddy_reload_cmd": "systemctl reload caddy",
     "wg_peer_ip": "10.100.0.1",
     "default_duration_minutes": "120",
-    "max_duration_minutes": "480",
+    "max_duration_minutes": "0",
     "reminder_interval_minutes": "120",
     "ntfy_url": "",
     "ntfy_topic": "caddylatch",
@@ -615,7 +615,7 @@ class LatchController:
             else:
                 duration = duration_minutes
 
-            if duration > 0 and duration > max_dur:
+            if max_dur > 0 and duration > 0 and duration > max_dur:
                 duration = max_dur
 
             now = now_utc()
@@ -773,7 +773,7 @@ class LatchController:
             new_exp = datetime.fromtimestamp(
                 current_exp.timestamp() + additional_minutes * 60, tz=timezone.utc)
             total = (new_exp - enabled_at).total_seconds() / 60
-            if total > max_dur:
+            if max_dur > 0 and total > max_dur:
                 return {"error": f"total duration would exceed max ({max_dur} min)"}
 
             new_state = self.state.update({"expires": new_exp.isoformat()})
