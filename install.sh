@@ -171,9 +171,19 @@ echo -e "${CYAN}╔════════════════════�
 echo -e "${CYAN}║       Installation complete          ║${NC}"
 echo -e "${CYAN}╚══════════════════════════════════════╝${NC}"
 echo ""
+# Read the configured listen_host so the verify hint shows the real IP.
+# Mirrors the daemon's parser: skip comment lines, take everything after
+# the first '=', and trim surrounding whitespace.
+LISTEN_HOST=$(grep -E '^[[:space:]]*listen_host[[:space:]]*=' "$CONFIG_DST" 2>/dev/null | tail -n1 | sed 's/^[^=]*=//; s/^[[:space:]]*//; s/[[:space:]]*$//')
+if [[ -z "$LISTEN_HOST" || "$LISTEN_HOST" == "CHANGE_ME" ]]; then
+    HEALTH_HOST="<tailscale-ip>"
+else
+    HEALTH_HOST="$LISTEN_HOST"
+fi
+
 echo "Next steps:"
 echo "  1. Edit ${CONFIG_DST} — set listen_host, ntfy settings"
 echo "  2. Update Caddy: import /etc/caddy/filter-caddylatch.caddy"
 echo "  3. Start: sudo systemctl enable --now caddylatch"
-echo "  4. Verify: curl -s http://<tailscale-ip>:8450/health"
+echo "  4. Verify: curl -s http://${HEALTH_HOST}:8450/health"
 echo ""
