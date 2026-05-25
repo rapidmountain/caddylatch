@@ -201,6 +201,7 @@ function App(){
   const[extraCountries,setExtraCountries]=useState(new Set());
   const[showCountrySearch,setShowCountrySearch]=useState(false);
   const[countryQuery,setCountryQuery]=useState("");
+  const[countryLimit,setCountryLimit]=useState(10);
   const[anyIp,setAnyIp]=useState(true);
   const[myIpActive,setMyIpActive]=useState(false);
   const[myIpAddr,setMyIpAddr]=useState("");
@@ -322,7 +323,7 @@ function App(){
   const addExtraCountry=(c)=>{
     setExtraCountries(new Set([...extraCountries,c]));
     setSelCountries(new Set([...selCountries,c]));
-    setShowCountrySearch(false);setCountryQuery("");
+    setShowCountrySearch(false);setCountryQuery("");setCountryLimit(10);
   };
   const removeExtraCountry=(c)=>{
     const e=new Set(extraCountries);e.delete(c);setExtraCountries(e);
@@ -352,6 +353,9 @@ function App(){
   };
 
   const isOpen=status?.enabled;
+
+  const q=countryQuery.toLowerCase();
+  const countryResults=ALL_COUNTRIES.filter(([c,n])=>!QUICK_PICKS.includes(c)&&!selCountries.has(c)&&!extraCountries.has(c)&&(n.toLowerCase().includes(q)||c.toLowerCase().includes(q)));
 
   if(loading)return <div style={{...S.app,textAlign:"center",paddingTop:80,color:"var(--txt3)"}}>Connecting to CaddyLatch...</div>;
 
@@ -408,13 +412,13 @@ function App(){
                         {gf(c)} {c} <span style={{opacity:.5,fontSize:11}}>✕</span>
                       </Chip>
                     ))}
-                    <Chip style={S.cpO} onClick={()=>setShowCountrySearch(!showCountrySearch)}>Other...</Chip>
+                    <Chip style={S.cpO} onClick={()=>{setShowCountrySearch(!showCountrySearch);setCountryLimit(10)}}>Other...</Chip>
                   </div>
                   {showCountrySearch&&(
                     <div style={S.srch}>
-                      <input style={S.srchIn} placeholder="Search countries..." value={countryQuery} onChange={e=>setCountryQuery(e.target.value)} autoFocus/>
-                      <div style={S.sr}>
-                        {ALL_COUNTRIES.filter(([c,n])=>!QUICK_PICKS.includes(c)&&!selCountries.has(c)&&!extraCountries.has(c)&&(n.toLowerCase().includes(countryQuery.toLowerCase())||c.toLowerCase().includes(countryQuery.toLowerCase()))).slice(0,10).map(([c,n])=>(
+                      <input style={S.srchIn} placeholder="Search countries..." value={countryQuery} onChange={e=>{setCountryQuery(e.target.value);setCountryLimit(10)}} autoFocus/>
+                      <div style={S.sr} onScroll={e=>{const el=e.currentTarget;if(el.scrollHeight-el.scrollTop-el.clientHeight<24&&countryLimit<countryResults.length)setCountryLimit(l=>l+10)}}>
+                        {countryResults.slice(0,countryLimit).map(([c,n])=>(
                           <div key={c} style={S.srItem} onClick={()=>addExtraCountry(c)} onMouseOver={e=>e.currentTarget.style.background="var(--bg3)"} onMouseOut={e=>e.currentTarget.style.background=""}>
                             {gf(c)} {c} — {n}
                           </div>
