@@ -776,6 +776,26 @@ class LatchController:
             logging.info(f"Timer extended by {additional_minutes} min to {new_exp.isoformat()}")
             return new_state
 
+    def set_timer(self, duration_minutes: int) -> dict:
+        """Set a timer on an already-open session that has no timer."""
+        with self._lock:
+            state = self.state.get()
+            if not state["enabled"]:
+                return {"error": "latch is not open"}
+            if state["expires"]:
+                return {"error": "latch already has a timer"}
+            now = now_utc()
+            expires = datetime.fromtimestamp(
+                now.timestamp() + duration_minutes * 60, tz=timezone.utc)
+            new_state = self.state.update({"expires": expires.isoformat()})
+            self._start_timer()
+            tz = self.cfg["display_timezone"]
+            send_ntfy(self.cfg, "⏱️ CaddyLatch timer set",
+                      f"Expires: {format_display_time(expires.isoformat(), tz)}\n"
+                      f"Duration: {duration_minutes} min")
+            logging.info(f"Timer set to {duration_minutes} min, expires {expires.isoformat()}")
+            return new_state
+
     def get_stats(self) -> dict:
         """Return operational stats for the web UI."""
         state = self.state.get()
@@ -972,6 +992,18 @@ class APIHandler(BaseHTTPRequestHandler):
                 self._json(400, {"error": "positive additional_minutes required"})
                 return
             result = self.controller.extend(mins)
+            self._json(400 if "error" in result else 200, result)
+
+        elif self.path == "/set-timer":
+            body = self._body()
+            if not body:
+                self._json(400, {"error": "missing request body"})
+                return
+            mins = body.get("duration_minutes")
+            if not mins or mins <= 0:
+                self._json(400, {"error": "positive duration_minutes required"})
+                return
+            result = self.controller.set_timer(mins)
             self._json(400 if "error" in result else 200, result)
 
         elif self.path == "/update-filters":
