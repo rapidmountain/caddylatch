@@ -222,6 +222,7 @@ function App(){
   const[durValue,setDurValue]=useState(2);
   const[durUnit,setDurUnit]=useState("hours");
   const[durModalAction,setDurModalAction]=useState(null);
+  const[durModalMeta,setDurModalMeta]=useState({title:"Custom duration",hint:"Between 5 minutes and 7 days."});
   const duration=noTimer?0:durMins;
 
   // IP list management
@@ -365,11 +366,12 @@ function App(){
     setModal({title:"Lock down?",body:"All public access will be blocked immediately. The WireGuard tunnel will be stopped and Caddy filters will be locked.",confirm:"Lock down",style:{borderColor:"var(--red)",background:"var(--red-d)",color:"var(--red)"},action:doDisable});
   };
   // Open the custom-duration modal. cb receives the chosen minutes on confirm.
-  const openDurModal=(cb,prefillMins=durMins)=>{
+  const openDurModal=(cb,prefillMins=durMins,title="Custom duration",hint="Between 5 minutes and 7 days.")=>{
     if(prefillMins%1440===0){setDurUnit("days");setDurValue(prefillMins/1440)}
     else if(prefillMins%60===0){setDurUnit("hours");setDurValue(prefillMins/60)}
     else{setDurUnit("minutes");setDurValue(prefillMins)}
     setDurModalAction(()=>cb);
+    setDurModalMeta({title,hint});
   };
   const applyDurModal=()=>{const m=clampDur(durValue,durUnit)*UNIT_CFG[durUnit].f;durModalAction(m);setDurModalAction(null)};
 
@@ -395,7 +397,7 @@ function App(){
       {!!durModalAction&&(
         <div style={S.modal} onClick={e=>{if(e.target===e.currentTarget)setDurModalAction(null)}}>
           <div style={S.modalBox}>
-            <h3 style={{font:"600 16px var(--sans)",marginBottom:10}}>Custom duration</h3>
+            <h3 style={{font:"600 16px var(--sans)",marginBottom:10}}>{durModalMeta.title}</h3>
             <div style={S.durRow}>
               <input type="number" style={S.durIn} min={UNIT_CFG[durUnit].min} max={UNIT_CFG[durUnit].max} step={UNIT_CFG[durUnit].step} value={durValue} onChange={e=>setDurValue(e.target.value)} onBlur={()=>setDurValue(clampDur(durValue,durUnit))} onKeyDown={e=>{if(e.key==="Enter")applyDurModal()}} autoFocus/>
               <select style={S.durSel} value={durUnit} onChange={e=>{const u=e.target.value;setDurUnit(u);setDurValue(clampDur(durValue,u))}}>
@@ -404,7 +406,7 @@ function App(){
                 <option value="days">days</option>
               </select>
             </div>
-            <div style={S.hint}>Between 5 minutes and 7 days.</div>
+            <div style={S.hint}>{durModalMeta.hint}</div>
             <div style={S.modalBtns}>
               <button style={S.modalCancel} onClick={()=>setDurModalAction(null)}>Cancel</button>
               <button style={{...S.modalCancel,border:"none",background:"var(--blu)",color:"#0a0c10"}} onClick={applyDurModal}>Set</button>
@@ -583,7 +585,7 @@ function App(){
                 <div style={S.er}>
                   <span style={{font:"600 12px var(--sans)",color:"var(--txt3)"}}>Extend:</span>
                   {EXTEND_PRESETS.map(p=><button key={p.v} style={S.eb} onClick={()=>doExtend(p.v)} disabled={acting}>{p.l}</button>)}
-                  <button style={S.eb} onClick={()=>openDurModal(m=>doExtend(m),60)} disabled={acting}>Other...</button>
+                  <button style={S.eb} onClick={()=>openDurModal(m=>doExtend(m),60,"Extend by...","This amount will be added to the remaining time.")} disabled={acting}>Other...</button>
                 </div>
               )}
 
