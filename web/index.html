@@ -203,13 +203,13 @@ function App(){
   const seeded=useRef(false);
 
   // Form state
-  const[allCountries,setAllCountries]=useState(false);
+  const[geoRestriction,setGeoRestriction]=useState(false);
   const[selCountries,setSelCountries]=useState(new Set());
   const[extraCountries,setExtraCountries]=useState(new Set());
   const[showCountrySearch,setShowCountrySearch]=useState(false);
   const[countryQuery,setCountryQuery]=useState("");
   const[countryLimit,setCountryLimit]=useState(10);
-  const[anyIp,setAnyIp]=useState(true);
+  const[ipRestriction,setIpRestriction]=useState(false);
   const[myIpActive,setMyIpActive]=useState(false);
   const[myIpAddr,setMyIpAddr]=useState("");
   const[myIpUnavailable,setMyIpUnavailable]=useState(false);
@@ -262,7 +262,8 @@ function App(){
     if(seeded.current||!status)return;
     seeded.current=true;
     const cs=(status.enabled?status.allowed_countries:status.last_countries)||[];
-    setAllCountries(!!(status.enabled?status.all_countries:status.last_all_countries));
+    const allC=!!(status.enabled?status.all_countries:status.last_all_countries);
+    setGeoRestriction(!allC);
     setSelCountries(new Set(cs));
     setExtraCountries(new Set(cs.filter(c=>!QUICK_PICKS.includes(c))));
   },[status]);
@@ -283,8 +284,8 @@ function App(){
     if(myIpActive&&myIpAddr)ips.push(myIpAddr+"/32");
     // Add IPs from active lists (resolved server-side)
     const body={
-      allowed_countries:allCountries?[]:[...selCountries],
-      all_countries:allCountries,
+      allowed_countries:geoRestriction?[...selCountries]:[],
+      all_countries:!geoRestriction,
       allowed_ips:ips,
       allowed_ip_lists:[...activeIpLists],
       duration_minutes:duration,
@@ -343,10 +344,10 @@ function App(){
   };
 
   const confirmOpen=()=>{
-    const geo=allCountries?"All countries":([...selCountries].map(c=>`${gf(c)} ${c}`).join(", ")||"None selected");
+    const geo=!geoRestriction?"All countries":([...selCountries].map(c=>`${gf(c)} ${c}`).join(", ")||"None selected");
     let ip;
-    if(anyIp){
-      ip="Any IP (no restriction)";
+    if(!ipRestriction){
+      ip="No restriction (allow any IP)";
     }else{
       const parts=[];
       if(myIpActive&&myIpAddr)parts.push(`${esc(myIpAddr)}/32 (My IP)`);
@@ -437,9 +438,9 @@ function App(){
             <div className="cd" style={S.cd}>
               {/* Countries */}
               <div style={S.fg}>
-                <div style={S.lb}>Allowed countries</div>
-                <Toggle on={allCountries} onChange={()=>setAllCountries(!allCountries)} label={allCountries?"All countries (no geo restriction)":"Select specific countries"}/>
-                {!allCountries&&<>
+                <div style={S.lb}>Geo restriction</div>
+                <Toggle on={geoRestriction} onChange={()=>setGeoRestriction(!geoRestriction)} label={geoRestriction?"Geo restriction (allow selected countries)":"No geo restriction (allow any country)"}/>
+                {geoRestriction&&<>
                   <div style={{...S.lb,fontSize:10,margin:"4px 0 8px"}}>Quick picks</div>
                   <div style={S.cps}>
                     {QUICK_PICKS.map(c=>(
@@ -471,9 +472,9 @@ function App(){
 
               {/* IPs */}
               <div style={S.fg}>
-                <div style={S.lb}>Allowed IPs</div>
-                <Toggle on={anyIp} onChange={()=>setAnyIp(!anyIp)} label={anyIp?"Any IP (no restriction)":"Restrict to specific IPs"}/>
-                {!anyIp&&<>
+                <div style={S.lb}>IP restriction</div>
+                <Toggle on={ipRestriction} onChange={()=>setIpRestriction(!ipRestriction)} label={ipRestriction?"Restrict to specific IPs":"No restriction (allow any IP)"}/>
+                {ipRestriction&&<>
                   <div style={S.ipTools}>
                     <Chip style={myIpActive&&!myIpUnavailable?S.cpG:S.cpGi} onClick={myIpUnavailable?undefined:()=>setMyIpActive(!myIpActive)}>
                       ⚡ My IP <span style={{opacity:.6,fontFamily:"var(--mono)",fontSize:11}}>({myIpUnavailable?"(unavailable)":myIpAddr||"detecting..."})</span>
