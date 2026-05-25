@@ -583,6 +583,7 @@ function App(){
                 <div style={S.er}>
                   <span style={{font:"600 12px var(--sans)",color:"var(--txt3)"}}>Extend:</span>
                   {EXTEND_PRESETS.map(p=><button key={p.v} style={S.eb} onClick={()=>doExtend(p.v)} disabled={acting}>{p.l}</button>)}
+                  <button style={S.eb} onClick={()=>openDurModal(m=>doExtend(m),60)} disabled={acting}>Other...</button>
                 </div>
               )}
 
