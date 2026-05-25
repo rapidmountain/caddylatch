@@ -528,6 +528,8 @@ class LatchController:
         self._lock = threading.Lock()
         self._reload_timer: threading.Timer | None = None
         self._reload_lock = threading.Lock()
+        self._caddy_synced: bool = True
+        self._caddy_error: str | None = None
         self._start_time = now_utc()
         self._reconcile_on_startup()
 
@@ -605,6 +607,8 @@ class LatchController:
 
     def _schedule_reload(self) -> None:
         """Debounce Caddy reloads: cancel any pending reload and schedule a fresh one."""
+        self._caddy_synced = False
+        self._caddy_error = None
         debounce = float(self.cfg.get("reload_debounce_seconds", "5"))
         with self._reload_lock:
             if self._reload_timer is not None:
@@ -618,7 +622,11 @@ class LatchController:
         """Called by the debounce timer — performs the actual Caddy reload."""
         with self._reload_lock:
             self._reload_timer = None
-        if not reload_caddy(self.cfg["caddy_reload_cmd"]):
+        if reload_caddy(self.cfg["caddy_reload_cmd"]):
+            self._caddy_synced = True
+            self._caddy_error = None
+        else:
+            self._caddy_error = "Caddy reload failed — check service status"
             send_ntfy(self.cfg, "⚠️ CaddyLatch — Caddy reload failed",
                       "Check Caddy service status. Manual restart may be required.",
                       int(self.cfg["ntfy_alert_priority"]))
@@ -946,6 +954,8 @@ class APIHandler(BaseHTTPRequestHandler):
             state["wg_up"] = wg_is_up(self.cfg["wg_interface"])
             state["version"] = __version__
             state["reload_debounce_seconds"] = float(self.cfg.get("reload_debounce_seconds", "5"))
+            state["caddy_synced"] = self.controller._caddy_synced
+            state["caddy_reload_error"] = self.controller._caddy_error
             self._json(200, state)
 
         elif self.path == "/stats":

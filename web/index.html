@@ -16,6 +16,7 @@
 body{font-family:var(--sans);background:var(--bg);color:var(--txt);min-height:100vh;-webkit-font-smoothing:antialiased;transition:background .2s,color .2s}
 input::placeholder{color:var(--txt3)}
 ::-webkit-scrollbar{width:6px}::-webkit-scrollbar-thumb{background:var(--bdr);border-radius:3px}
+@keyframes spin{to{transform:rotate(360deg)}}.spin{animation:spin .8s linear infinite;transform-origin:center;display:inline-block}
 </style>
 </head>
 <body>
@@ -187,6 +188,48 @@ function Toast({msg,type}){
   return <div style={{...S.toast,...(type==="error"?S.toastErr:S.toastOk)}}>{msg}</div>;
 }
 
+// ── Progress Modal ──
+function StepIcon({state}){
+  if(state==='done')return <span style={{color:"var(--grn)",fontSize:16,lineHeight:1,flexShrink:0}}>✓</span>;
+  if(state==='error')return <span style={{color:"var(--red)",fontSize:16,lineHeight:1,flexShrink:0}}>✕</span>;
+  if(state==='running')return <span className="spin" style={{width:16,height:16,border:"2px solid var(--bdr2)",borderTopColor:"var(--blu)",borderRadius:"50%",flexShrink:0}}/>;
+  return <span style={{display:"inline-block",width:16,height:16,border:"2px solid var(--bdr)",borderRadius:"50%",flexShrink:0}}/>;
+}
+function ProgressModal({modal,onDismiss}){
+  if(!modal)return null;
+  const{action,phase,error}=modal;
+  const opening=action==='enable';
+  let wgState,caddyState;
+  if(phase==='api'){wgState='running';caddyState='pending';}
+  else if(phase==='caddy'){wgState='done';caddyState='running';}
+  else if(phase==='done'){wgState='done';caddyState='done';}
+  else if(phase==='error'){wgState='error';caddyState='pending';}
+  else{wgState='done';caddyState='error';}
+  const isDone=phase==='done';
+  const isError=phase==='error'||phase==='caddy_error';
+  const title=isDone?(opening?"Latch opened ✓":"Latch locked ✓"):isError?(opening?"Failed to open":"Failed to lock"):(opening?"Opening latch...":"Locking down...");
+  return(
+    <div style={S.modal}>
+      <div style={{...S.modalBox,maxWidth:360}}>
+        <h3 style={{font:"600 16px var(--sans)",marginBottom:20,color:isDone?"var(--grn)":isError?"var(--red)":"var(--txt)"}}>{title}</h3>
+        <div style={{display:"flex",flexDirection:"column",gap:14}}>
+          <div style={{display:"flex",alignItems:"center",gap:12}}>
+            <StepIcon state={wgState}/>
+            <span style={{fontSize:13,color:wgState==='error'?"var(--red)":wgState==='done'?"var(--txt)":"var(--txt2)"}}>{opening?"Opening WireGuard tunnel":"Stopping WireGuard tunnel"}</span>
+          </div>
+          <div style={{display:"flex",alignItems:"center",gap:12}}>
+            <StepIcon state={caddyState}/>
+            <span style={{fontSize:13,color:caddyState==='error'?"var(--red)":caddyState==='done'?"var(--txt)":"var(--txt2)"}}>Reloading Caddy filter</span>
+          </div>
+        </div>
+        {isError&&error&&<div style={{fontSize:12,color:"var(--red)",marginTop:14,padding:"8px 12px",background:"var(--red-d)",borderRadius:6,border:"1px solid var(--red)"}}>{error}</div>}
+        {isDone&&<div style={{fontSize:11,color:"var(--txt3)",marginTop:16,textAlign:"center"}}>Closing in 3 seconds...</div>}
+        {isError&&<div style={{...S.modalBtns,marginTop:16}}><button style={S.modalCancel} onClick={onDismiss}>Dismiss</button></div>}
+      </div>
+    </div>
+  );
+}
+
 // ── Main App ──
 function App(){
   const[dark,setDark]=useState(true);
@@ -197,11 +240,11 @@ function App(){
   const[err,setErr]=useState(null);
   const[toast,setToast]=useState(null);
   const[acting,setActing]=useState(false);
-  const[cooldown,setCooldown]=useState(false);
+  const[progressModal,setProgressModal]=useState(null);
   const[view,setView]=useState("main"); // main | lists
   const[modal,setModal]=useState(null);
   const toastTm=useRef(null);
-  const cooldownTm=useRef(null);
+  const dismissTm=useRef(null);
   const seeded=useRef(false);
 
   // Form state
@@ -233,14 +276,8 @@ function App(){
   const[newListIps,setNewListIps]=useState([]);
 
   const flash=(msg,type="success")=>{setToast({msg,type});clearTimeout(toastTm.current);toastTm.current=setTimeout(()=>setToast(null),4000)};
-  const startCooldown=()=>{
-    const ms=(status?.reload_debounce_seconds??5)*1000;
-    setCooldown(true);
-    clearTimeout(cooldownTm.current);
-    cooldownTm.current=setTimeout(()=>setCooldown(false),ms);
-  };
 
-  // Polling
+  // Polling — 500ms while progress modal is open, 3s otherwise
   const fetchAll=useCallback(async()=>{
     try{
       const[s,st,il]=await Promise.all([api("/status"),api("/stats"),api("/ip-lists")]);
@@ -248,7 +285,25 @@ function App(){
     }catch(e){setErr("Connection failed")}finally{setLoading(false)}
   },[]);
 
-  useEffect(()=>{fetchAll();const iv=setInterval(fetchAll,3000);return()=>clearInterval(iv)},[fetchAll]);
+  useEffect(()=>{fetchAll();const iv=setInterval(fetchAll,progressModal?500:3000);return()=>clearInterval(iv)},[fetchAll,!!progressModal]);
+
+  // Advance progress modal from 'caddy' phase once reload completes
+  useEffect(()=>{
+    if(!progressModal||progressModal.phase!=='caddy'||!status)return;
+    if(!progressModal.caddySeen){
+      if(status.caddy_synced===false)setProgressModal(m=>m?{...m,caddySeen:true}:m);
+      return;
+    }
+    if(status.caddy_reload_error)setProgressModal(m=>m?{...m,phase:'caddy_error',error:status.caddy_reload_error}:m);
+    else if(status.caddy_synced===true)setProgressModal(m=>m?{...m,phase:'done'}:m);
+  },[status,progressModal]);
+
+  // Auto-dismiss progress modal 3s after completion
+  useEffect(()=>{
+    if(!progressModal||progressModal.phase!=='done')return;
+    dismissTm.current=setTimeout(()=>setProgressModal(null),3000);
+    return()=>clearTimeout(dismissTm.current);
+  },[progressModal?.phase]);
   useEffect(()=>{
     const svcs=[
       ()=>fetch("https://api.ipify.org?format=json").then(r=>r.json()).then(d=>d.ip),
@@ -289,9 +344,9 @@ function App(){
   // Actions
   const doEnable=async()=>{
     setActing(true);setModal(null);
+    setProgressModal({action:'enable',phase:'api',error:null,caddySeen:false});
     const ips=[...manualIps.filter(m=>m.active).map(m=>m.ip)];
     if(myIpActive&&myIpAddr)ips.push(myIpAddr+"/32");
-    // Add IPs from active lists (resolved server-side)
     const body={
       allowed_countries:geoRestriction?[...selCountries]:[],
       all_countries:!geoRestriction,
@@ -301,14 +356,17 @@ function App(){
     };
     const r=await api("/enable",{method:"POST",body:JSON.stringify(body)});
     setActing(false);
-    if(r.error){flash(r.error,"error")}else{setStatus(r);flash("Latch opened");startCooldown()}
+    if(r.error){setProgressModal(m=>m?{...m,phase:'error',error:r.error}:m);}
+    else{setStatus(r);setProgressModal(m=>m?{...m,phase:'caddy',caddySeen:false}:m);}
   };
 
   const doDisable=async()=>{
     setActing(true);setModal(null);
+    setProgressModal({action:'disable',phase:'api',error:null,caddySeen:false});
     const r=await api("/disable",{method:"POST"});
     setActing(false);
-    if(r.error){flash(r.error,"error")}else{setStatus(r);flash("Latch locked");startCooldown()}
+    if(r.error){setProgressModal(m=>m?{...m,phase:'error',error:r.error}:m);}
+    else{setStatus(r);setProgressModal(m=>m?{...m,phase:'caddy',caddySeen:false}:m);}
   };
 
   const doExtend=async(mins)=>{
@@ -402,6 +460,7 @@ function App(){
       <style>{`@media(min-width:700px){.lay{grid-template-columns:1fr 260px !important;gap:20px !important}.cd{padding:24px !important}}`}</style>
       <Toast msg={toast?.msg} type={toast?.type}/>
       <Modal show={!!modal} title={modal?.title} body={modal?.body} confirmLabel={modal?.confirm} confirmStyle={modal?.style} onConfirm={modal?.action} onCancel={()=>setModal(null)}/>
+      <ProgressModal modal={progressModal} onDismiss={()=>setProgressModal(null)}/>
       {!!durModalAction&&(
         <div style={S.modal} onClick={e=>{if(e.target===e.currentTarget)setDurModalAction(null)}}>
           <div style={S.modalBox}>
@@ -543,7 +602,7 @@ function App(){
                 )}
               </div>
 
-              <button style={S.btnGo} onClick={confirmOpen} disabled={acting||cooldown}>{acting?"Opening...":cooldown?"Applying...":"Open latch"}</button>
+              <button style={S.btnGo} onClick={confirmOpen} disabled={acting||!!progressModal}>{acting?"Opening...":"Open latch"}</button>
             </div>
           )}
 
@@ -597,7 +656,7 @@ function App(){
                 </div>
               )}
 
-              <button style={S.btnStop} onClick={confirmClose} disabled={acting||cooldown}>{acting?"Locking...":cooldown?"Applying...":"Lock down"}</button>
+              <button style={S.btnStop} onClick={confirmClose} disabled={acting||!!progressModal}>{acting?"Locking...":"Lock down"}</button>
             </div>
           )}
 
