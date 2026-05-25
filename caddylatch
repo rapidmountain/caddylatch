@@ -140,6 +140,10 @@ DEFAULT_STATE = {
     "disabled_reason": None,
     "last_opened": None,
     "last_closed": None,
+    # Last-used country selection, preserved across a lock so the web UI can
+    # restore the previous configuration instead of a hardcoded default.
+    "last_countries": [],
+    "last_all_countries": False,
 }
 
 
@@ -655,6 +659,8 @@ class LatchController:
                 "allowed_ip_lists": allowed_ip_lists,
                 "allowed_countries": allowed_countries,
                 "all_countries": all_countries,
+                "last_countries": allowed_countries,
+                "last_all_countries": all_countries,
                 "expires": expires_iso,
                 "enabled_at": now.isoformat(),
                 "last_opened": now.isoformat(),
@@ -743,6 +749,8 @@ class LatchController:
                 "allowed_ip_lists": allowed_ip_lists,
                 "allowed_countries": allowed_countries,
                 "all_countries": all_countries,
+                "last_countries": allowed_countries,
+                "last_all_countries": all_countries,
             })
             send_ntfy(self.cfg, "🔓 CaddyLatch filters updated",
                       f"Countries: {'all' if all_countries else ', '.join(allowed_countries) or 'none'}\n"

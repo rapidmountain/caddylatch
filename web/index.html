@@ -192,10 +192,11 @@ function App(){
   const[view,setView]=useState("main"); // main | lists
   const[modal,setModal]=useState(null);
   const toastTm=useRef(null);
+  const seeded=useRef(false);
 
   // Form state
   const[allCountries,setAllCountries]=useState(false);
-  const[selCountries,setSelCountries]=useState(new Set(["SE","DK"]));
+  const[selCountries,setSelCountries]=useState(new Set());
   const[extraCountries,setExtraCountries]=useState(new Set());
   const[showCountrySearch,setShowCountrySearch]=useState(false);
   const[countryQuery,setCountryQuery]=useState("");
@@ -239,6 +240,18 @@ function App(){
 
   // Theme
   useEffect(()=>{document.documentElement.setAttribute("data-theme",dark?"dark":"light")},[dark]);
+
+  // Seed the country form once from the last-used config (live when open,
+  // otherwise the persisted last_countries) so it reflects the previous
+  // selection instead of a hardcoded default.
+  useEffect(()=>{
+    if(seeded.current||!status)return;
+    seeded.current=true;
+    const cs=(status.enabled?status.allowed_countries:status.last_countries)||[];
+    setAllCountries(!!(status.enabled?status.all_countries:status.last_all_countries));
+    setSelCountries(new Set(cs));
+    setExtraCountries(new Set(cs.filter(c=>!QUICK_PICKS.includes(c))));
+  },[status]);
 
   // Duplicate IP check
   const ipExistsIn=(ip)=>{
