@@ -783,41 +783,48 @@ class LatchController:
             if not state["enabled"]:
                 return {"error": "latch is not open"}
             if not state["expires"]:
-                return {"error": "latch has no timer to extend"}
+                return {"error": "latch has no timer to adjust"}
 
             current_exp = datetime.fromisoformat(state["expires"])
-
             new_exp = datetime.fromtimestamp(
                 current_exp.timestamp() + additional_minutes * 60, tz=timezone.utc)
+
+            if new_exp <= now_utc():
+                return {"error": "reduction would expire the timer immediately — use Lock down instead"}
 
             new_state = self.state.update({"expires": new_exp.isoformat()})
             self._start_timer()
 
             tz = self.cfg["display_timezone"]
-            send_ntfy(self.cfg, "⏱️ CaddyLatch extended",
-                      f"New expiry: {format_display_time(new_exp.isoformat(), tz)}\n"
-                      f"Added: {additional_minutes} min")
-            logging.info(f"Timer extended by {additional_minutes} min to {new_exp.isoformat()}")
+            if additional_minutes > 0:
+                send_ntfy(self.cfg, "⏱️ CaddyLatch extended",
+                          f"New expiry: {format_display_time(new_exp.isoformat(), tz)}\n"
+                          f"Added: {additional_minutes} min")
+            else:
+                send_ntfy(self.cfg, "⏱️ CaddyLatch reduced",
+                          f"New expiry: {format_display_time(new_exp.isoformat(), tz)}\n"
+                          f"Subtracted: {-additional_minutes} min")
+            logging.info(f"Timer adjusted by {additional_minutes} min to {new_exp.isoformat()}")
             return new_state
 
     def set_timer(self, duration_minutes: int) -> dict:
-        """Set a timer on an already-open session that has no timer."""
+        """Set or replace the timer on an open session."""
         with self._lock:
             state = self.state.get()
             if not state["enabled"]:
                 return {"error": "latch is not open"}
-            if state["expires"]:
-                return {"error": "latch already has a timer"}
+            had_timer = bool(state["expires"])
             now = now_utc()
             expires = datetime.fromtimestamp(
                 now.timestamp() + duration_minutes * 60, tz=timezone.utc)
             new_state = self.state.update({"expires": expires.isoformat()})
             self._start_timer()
             tz = self.cfg["display_timezone"]
-            send_ntfy(self.cfg, "⏱️ CaddyLatch timer set",
+            title = "⏱️ CaddyLatch timer updated" if had_timer else "⏱️ CaddyLatch timer set"
+            send_ntfy(self.cfg, title,
                       f"Expires: {format_display_time(expires.isoformat(), tz)}\n"
                       f"Duration: {duration_minutes} min")
-            logging.info(f"Timer set to {duration_minutes} min, expires {expires.isoformat()}")
+            logging.info(f"Timer {'updated' if had_timer else 'set'} to {duration_minutes} min, expires {expires.isoformat()}")
             return new_state
 
     def get_stats(self) -> dict:
@@ -1015,8 +1022,8 @@ class APIHandler(BaseHTTPRequestHandler):
                 self._json(400, {"error": "missing request body"})
                 return
             mins = body.get("additional_minutes")
-            if not mins or mins <= 0:
-                self._json(400, {"error": "positive additional_minutes required"})
+            if mins is None or mins == 0:
+                self._json(400, {"error": "non-zero additional_minutes required"})
                 return
             result = self.controller.extend(mins)
             self._json(400 if "error" in result else 200, result)
