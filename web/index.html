@@ -29,6 +29,8 @@ const QUICK_PICKS=["SE","DK","NO","FI","DE","NL","GB"];
 const DURATION_PRESETS=[{l:"30 min",v:30},{l:"1 hr",v:60},{l:"2 hr",v:120},{l:"4 hr",v:240},{l:"8 hr",v:480},{l:"No timer",v:0}];
 const EXTEND_PRESETS=[{l:"+15m",v:15},{l:"+30m",v:30},{l:"+1hr",v:60},{l:"+2hr",v:120}];
 const gf=c=>(typeof c==="string"&&/^[A-Za-z]{2}$/.test(c))?String.fromCodePoint(...[...c.toUpperCase()].map(x=>0x1F1E6+x.charCodeAt(0)-65)):"🏳️";
+// Escape user-controlled values before injecting into modal HTML.
+const esc=s=>String(s).replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;"}[c]));
 
 // ── API helpers ──
 const api=async(path,opts={})=>{
@@ -329,7 +331,19 @@ function App(){
 
   const confirmOpen=()=>{
     const geo=allCountries?"All countries":([...selCountries].map(c=>`${gf(c)} ${c}`).join(", ")||"None selected");
-    const ip=anyIp?"Any IP":"Specific IPs";
+    let ip;
+    if(anyIp){
+      ip="Any IP (no restriction)";
+    }else{
+      const parts=[];
+      if(myIpActive&&myIpAddr)parts.push(`${esc(myIpAddr)}/32 (My IP)`);
+      [...activeIpLists].forEach(name=>{
+        const n=(ipLists[name]||[]).length;
+        parts.push(`${esc(name)} (${n} IP${n===1?"":"s"})`);
+      });
+      manualIps.filter(m=>m.active).forEach(m=>parts.push(esc(m.ip)));
+      ip=parts.join(", ")||"None selected";
+    }
     const dur=DURATION_PRESETS.find(p=>p.v===duration)?.l||`${duration} min`;
     setModal({title:"Open the latch?",body:`Traffic will be allowed through with these settings:<br><br><strong>Countries:</strong> ${geo}<br><strong>IPs:</strong> ${ip}<br><strong>Duration:</strong> ${dur}`,confirm:"Open latch",style:{border:"none",background:"var(--grn)",color:"#0a0c10"},action:doEnable});
   };
