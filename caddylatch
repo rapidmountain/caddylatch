@@ -69,7 +69,6 @@ DEFAULT_CONFIG = {
     "caddy_reload_cmd": "systemctl reload caddy",
     "wg_peer_ip": "10.100.0.1",
     "default_duration_minutes": "120",
-    "max_duration_minutes": "0",
     "reminder_interval_minutes": "120",
     "ntfy_url": "",
     "ntfy_topic": "caddylatch",
@@ -607,16 +606,12 @@ class LatchController:
         """Open the latch."""
         with self._lock:
             wg_iface = self.cfg["wg_interface"]
-            max_dur = int(self.cfg["max_duration_minutes"])
             default_dur = int(self.cfg["default_duration_minutes"])
 
             if duration_minutes is None:
                 duration = default_dur
             else:
                 duration = duration_minutes
-
-            if max_dur > 0 and duration > 0 and duration > max_dur:
-                duration = max_dur
 
             now = now_utc()
             expires_iso = None
@@ -767,14 +762,9 @@ class LatchController:
                 return {"error": "latch has no timer to extend"}
 
             current_exp = datetime.fromisoformat(state["expires"])
-            enabled_at = datetime.fromisoformat(state["enabled_at"])
-            max_dur = int(self.cfg["max_duration_minutes"])
 
             new_exp = datetime.fromtimestamp(
                 current_exp.timestamp() + additional_minutes * 60, tz=timezone.utc)
-            total = (new_exp - enabled_at).total_seconds() / 60
-            if max_dur > 0 and total > max_dur:
-                return {"error": f"total duration would exceed max ({max_dur} min)"}
 
             new_state = self.state.update({"expires": new_exp.isoformat()})
             self._start_timer()
