@@ -69,6 +69,7 @@ DEFAULT_CONFIG = {
     "caddy_reload_cmd": "systemctl reload caddy",
     "wg_peer_ip": "10.100.0.1",
     "default_duration_minutes": "120",
+    "reload_debounce_seconds": "5",
     "reminder_interval_minutes": "120",
     "ntfy_url": "",
     "ntfy_topic": "caddylatch",
@@ -525,6 +526,8 @@ class LatchController:
         self._reminder_stop = threading.Event()
         self._reminder_thread: threading.Thread | None = None
         self._lock = threading.Lock()
+        self._reload_timer: threading.Timer | None = None
+        self._reload_lock = threading.Lock()
         self._start_time = now_utc()
         self._reconcile_on_startup()
 
@@ -576,7 +579,7 @@ class LatchController:
                 all_ips,
                 current.get("all_countries", False),
             )
-            reload_caddy(self.cfg["caddy_reload_cmd"])
+            self._schedule_reload()
             if current["expires"]:
                 self._start_timer()
             self._start_reminder()
@@ -592,13 +595,33 @@ class LatchController:
                 logging.warning("WireGuard is up but latch is locked — stopping")
                 wg_down(wg_iface)
             write_filter_locked(self.cfg)
-            reload_caddy(self.cfg["caddy_reload_cmd"])
+            self._schedule_reload()
 
     def _resolve_ips(self, direct_ips: list[str], list_names: list[str]) -> list[str]:
         """Combine direct IPs with resolved IP list entries, deduplicated."""
         all_ips = list(direct_ips)
         all_ips.extend(self.ip_lists.resolve(list_names))
         return list(dict.fromkeys(all_ips))  # dedupe, preserve order
+
+    def _schedule_reload(self) -> None:
+        """Debounce Caddy reloads: cancel any pending reload and schedule a fresh one."""
+        debounce = float(self.cfg.get("reload_debounce_seconds", "5"))
+        with self._reload_lock:
+            if self._reload_timer is not None:
+                self._reload_timer.cancel()
+            t = threading.Timer(debounce, self._fire_reload)
+            t.daemon = True
+            t.start()
+            self._reload_timer = t
+
+    def _fire_reload(self) -> None:
+        """Called by the debounce timer — performs the actual Caddy reload."""
+        with self._reload_lock:
+            self._reload_timer = None
+        if not reload_caddy(self.cfg["caddy_reload_cmd"]):
+            send_ntfy(self.cfg, "⚠️ CaddyLatch — Caddy reload failed",
+                      "Check Caddy service status. Manual restart may be required.",
+                      int(self.cfg["ntfy_alert_priority"]))
 
     def enable(self, allowed_ips: list[str], allowed_ip_lists: list[str],
                allowed_countries: list[str], all_countries: bool = False,
@@ -629,27 +652,16 @@ class LatchController:
             # 1. Write filter
             write_filter_open(self.cfg, allowed_countries, all_ips, all_countries)
 
-            # 2. Reload Caddy
-            if not reload_caddy(self.cfg["caddy_reload_cmd"]):
-                # Write locked filter to disk — Caddy will pick it up when it
-                # recovers, so do NOT send another reload signal here; piling
-                # on SIGHUPs is what causes Caddy to get stuck.
-                write_filter_locked(self.cfg)
-                send_ntfy(self.cfg, "⚠️ CaddyLatch — FAILED to open",
-                          "Caddy reload failed, filters rolled back",
-                          int(self.cfg["ntfy_alert_priority"]))
-                return {"error": "Caddy reload failed"}
-
-            # 3. Start WireGuard
+            # 2. Start WireGuard
             if not wg_up(wg_iface):
                 write_filter_locked(self.cfg)
-                reload_caddy(self.cfg["caddy_reload_cmd"])
+                self._schedule_reload()
                 send_ntfy(self.cfg, "⚠️ CaddyLatch — FAILED to open",
                           "WireGuard failed to start, filters rolled back",
                           int(self.cfg["ntfy_alert_priority"]))
                 return {"error": "WireGuard failed to start"}
 
-            # 4. Persist state
+            # 3. Persist state
             new_state = self.state.update({
                 "enabled": True,
                 "allowed_ips": allowed_ips,
@@ -663,6 +675,9 @@ class LatchController:
                 "last_opened": now.isoformat(),
                 "disabled_reason": None,
             })
+
+            # 4. Schedule Caddy reload (debounced)
+            self._schedule_reload()
 
             # 5. Timer + reminder
             if duration > 0:
@@ -707,8 +722,8 @@ class LatchController:
         # 3. Lock filter
         write_filter_locked(self.cfg)
 
-        # 4. Reload Caddy
-        reload_caddy(self.cfg["caddy_reload_cmd"])
+        # 4. Schedule Caddy reload (debounced)
+        self._schedule_reload()
 
         # 5. Persist state
         now = now_utc()
@@ -738,8 +753,7 @@ class LatchController:
                 return {"error": "at least one of countries, IPs, or all_countries required"}
 
             write_filter_open(self.cfg, allowed_countries, all_ips, all_countries)
-            if not reload_caddy(self.cfg["caddy_reload_cmd"]):
-                return {"error": "Caddy reload failed"}
+            self._schedule_reload()
 
             new_state = self.state.update({
                 "allowed_ips": allowed_ips,
@@ -931,6 +945,7 @@ class APIHandler(BaseHTTPRequestHandler):
             state = self.controller.state.get()
             state["wg_up"] = wg_is_up(self.cfg["wg_interface"])
             state["version"] = __version__
+            state["reload_debounce_seconds"] = float(self.cfg.get("reload_debounce_seconds", "5"))
             self._json(200, state)
 
         elif self.path == "/stats":

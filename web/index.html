@@ -197,9 +197,11 @@ function App(){
   const[err,setErr]=useState(null);
   const[toast,setToast]=useState(null);
   const[acting,setActing]=useState(false);
+  const[cooldown,setCooldown]=useState(false);
   const[view,setView]=useState("main"); // main | lists
   const[modal,setModal]=useState(null);
   const toastTm=useRef(null);
+  const cooldownTm=useRef(null);
   const seeded=useRef(false);
 
   // Form state
@@ -231,6 +233,12 @@ function App(){
   const[newListIps,setNewListIps]=useState([]);
 
   const flash=(msg,type="success")=>{setToast({msg,type});clearTimeout(toastTm.current);toastTm.current=setTimeout(()=>setToast(null),4000)};
+  const startCooldown=()=>{
+    const ms=(status?.reload_debounce_seconds??5)*1000;
+    setCooldown(true);
+    clearTimeout(cooldownTm.current);
+    cooldownTm.current=setTimeout(()=>setCooldown(false),ms);
+  };
 
   // Polling
   const fetchAll=useCallback(async()=>{
@@ -293,14 +301,14 @@ function App(){
     };
     const r=await api("/enable",{method:"POST",body:JSON.stringify(body)});
     setActing(false);
-    if(r.error){flash(r.error,"error")}else{setStatus(r);flash("Latch opened")}
+    if(r.error){flash(r.error,"error")}else{setStatus(r);flash("Latch opened");startCooldown()}
   };
 
   const doDisable=async()=>{
     setActing(true);setModal(null);
     const r=await api("/disable",{method:"POST"});
     setActing(false);
-    if(r.error){flash(r.error,"error")}else{setStatus(r);flash("Latch locked")}
+    if(r.error){flash(r.error,"error")}else{setStatus(r);flash("Latch locked");startCooldown()}
   };
 
   const doExtend=async(mins)=>{
@@ -535,7 +543,7 @@ function App(){
                 )}
               </div>
 
-              <button style={S.btnGo} onClick={confirmOpen} disabled={acting}>{acting?"Opening...":"Open latch"}</button>
+              <button style={S.btnGo} onClick={confirmOpen} disabled={acting||cooldown}>{acting?"Opening...":cooldown?"Applying...":"Open latch"}</button>
             </div>
           )}
 
@@ -589,7 +597,7 @@ function App(){
                 </div>
               )}
 
-              <button style={S.btnStop} onClick={confirmClose} disabled={acting}>{acting?"Locking...":"Lock down"}</button>
+              <button style={S.btnStop} onClick={confirmClose} disabled={acting||cooldown}>{acting?"Locking...":cooldown?"Applying...":"Lock down"}</button>
             </div>
           )}
 
