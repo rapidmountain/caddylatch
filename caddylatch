@@ -631,8 +631,10 @@ class LatchController:
 
             # 2. Reload Caddy
             if not reload_caddy(self.cfg["caddy_reload_cmd"]):
+                # Write locked filter to disk — Caddy will pick it up when it
+                # recovers, so do NOT send another reload signal here; piling
+                # on SIGHUPs is what causes Caddy to get stuck.
                 write_filter_locked(self.cfg)
-                reload_caddy(self.cfg["caddy_reload_cmd"])
                 send_ntfy(self.cfg, "⚠️ CaddyLatch — FAILED to open",
                           "Caddy reload failed, filters rolled back",
                           int(self.cfg["ntfy_alert_priority"]))
