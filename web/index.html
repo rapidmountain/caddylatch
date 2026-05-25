@@ -26,7 +26,7 @@ const {useState,useEffect,useCallback,useRef} = React;
 // ── Constants ──
 const ALL_COUNTRIES=[["AF","Afghanistan"],["AL","Albania"],["DZ","Algeria"],["AS","American Samoa"],["AD","Andorra"],["AO","Angola"],["AI","Anguilla"],["AQ","Antarctica"],["AG","Antigua and Barbuda"],["AR","Argentina"],["AM","Armenia"],["AW","Aruba"],["AU","Australia"],["AT","Austria"],["AZ","Azerbaijan"],["BS","Bahamas"],["BH","Bahrain"],["BD","Bangladesh"],["BB","Barbados"],["BY","Belarus"],["BE","Belgium"],["BZ","Belize"],["BJ","Benin"],["BM","Bermuda"],["BT","Bhutan"],["BO","Bolivia"],["BA","Bosnia and Herzegovina"],["BW","Botswana"],["BV","Bouvet Island"],["BR","Brazil"],["IO","British Indian Ocean Territory"],["VG","British Virgin Islands"],["BN","Brunei"],["BG","Bulgaria"],["BF","Burkina Faso"],["BI","Burundi"],["KH","Cambodia"],["CM","Cameroon"],["CA","Canada"],["CV","Cape Verde"],["BQ","Caribbean Netherlands"],["KY","Cayman Islands"],["CF","Central African Republic"],["TD","Chad"],["CL","Chile"],["CN","China"],["CX","Christmas Island"],["CC","Cocos (Keeling) Islands"],["CO","Colombia"],["KM","Comoros"],["CD","Congo (DR)"],["CG","Congo (Republic)"],["CK","Cook Islands"],["CR","Costa Rica"],["HR","Croatia"],["CU","Cuba"],["CW","Curaçao"],["CY","Cyprus"],["CZ","Czechia"],["CI","Côte d'Ivoire"],["DK","Denmark"],["DJ","Djibouti"],["DM","Dominica"],["DO","Dominican Republic"],["EC","Ecuador"],["EG","Egypt"],["SV","El Salvador"],["GQ","Equatorial Guinea"],["ER","Eritrea"],["EE","Estonia"],["SZ","Eswatini"],["ET","Ethiopia"],["FK","Falkland Islands"],["FO","Faroe Islands"],["FJ","Fiji"],["FI","Finland"],["FR","France"],["GF","French Guiana"],["PF","French Polynesia"],["TF","French Southern Territories"],["GA","Gabon"],["GM","Gambia"],["GE","Georgia"],["DE","Germany"],["GH","Ghana"],["GI","Gibraltar"],["GR","Greece"],["GL","Greenland"],["GD","Grenada"],["GP","Guadeloupe"],["GU","Guam"],["GT","Guatemala"],["GG","Guernsey"],["GN","Guinea"],["GW","Guinea-Bissau"],["GY","Guyana"],["HT","Haiti"],["HM","Heard & McDonald Islands"],["HN","Honduras"],["HK","Hong Kong"],["HU","Hungary"],["IS","Iceland"],["IN","India"],["ID","Indonesia"],["IR","Iran"],["IQ","Iraq"],["IE","Ireland"],["IM","Isle of Man"],["IL","Israel"],["IT","Italy"],["JM","Jamaica"],["JP","Japan"],["JE","Jersey"],["JO","Jordan"],["KZ","Kazakhstan"],["KE","Kenya"],["KI","Kiribati"],["KW","Kuwait"],["KG","Kyrgyzstan"],["LA","Laos"],["LV","Latvia"],["LB","Lebanon"],["LS","Lesotho"],["LR","Liberia"],["LY","Libya"],["LI","Liechtenstein"],["LT","Lithuania"],["LU","Luxembourg"],["MO","Macao"],["MG","Madagascar"],["MW","Malawi"],["MY","Malaysia"],["MV","Maldives"],["ML","Mali"],["MT","Malta"],["MH","Marshall Islands"],["MQ","Martinique"],["MR","Mauritania"],["MU","Mauritius"],["YT","Mayotte"],["MX","Mexico"],["FM","Micronesia"],["MD","Moldova"],["MC","Monaco"],["MN","Mongolia"],["ME","Montenegro"],["MS","Montserrat"],["MA","Morocco"],["MZ","Mozambique"],["MM","Myanmar"],["NA","Namibia"],["NR","Nauru"],["NP","Nepal"],["NL","Netherlands, Kingdom of the"],["NC","New Caledonia"],["NZ","New Zealand"],["NI","Nicaragua"],["NE","Niger"],["NG","Nigeria"],["NU","Niue"],["NF","Norfolk Island"],["KP","North Korea"],["MK","North Macedonia"],["MP","Northern Mariana Islands"],["NO","Norway"],["OM","Oman"],["PK","Pakistan"],["PW","Palau"],["PS","Palestine"],["PA","Panama"],["PG","Papua New Guinea"],["PY","Paraguay"],["PE","Peru"],["PH","Philippines"],["PN","Pitcairn"],["PL","Poland"],["PT","Portugal"],["PR","Puerto Rico"],["QA","Qatar"],["RO","Romania"],["RU","Russia"],["RW","Rwanda"],["RE","Réunion"],["BL","Saint Barthélemy"],["SH","Saint Helena, Ascension and Tristan da Cunha"],["KN","Saint Kitts and Nevis"],["LC","Saint Lucia"],["MF","Saint Martin"],["PM","Saint Pierre & Miquelon"],["VC","Saint Vincent and the Grenadines"],["WS","Samoa"],["SM","San Marino"],["ST","Sao Tome and Principe"],["SA","Saudi Arabia"],["SN","Senegal"],["RS","Serbia"],["SC","Seychelles"],["SL","Sierra Leone"],["SG","Singapore"],["SX","Sint Maarten"],["SK","Slovakia"],["SI","Slovenia"],["SB","Solomon Islands"],["SO","Somalia"],["ZA","South Africa"],["GS","South Georgia"],["KR","South Korea"],["SS","South Sudan"],["ES","Spain"],["LK","Sri Lanka"],["SD","Sudan"],["SR","Suriname"],["SJ","Svalbard and Jan Mayen"],["SE","Sweden"],["CH","Switzerland"],["SY","Syria"],["TW","Taiwan"],["TJ","Tajikistan"],["TZ","Tanzania"],["TH","Thailand"],["TL","Timor-Leste"],["TG","Togo"],["TK","Tokelau"],["TO","Tonga"],["TT","Trinidad and Tobago"],["TN","Tunisia"],["TM","Turkmenistan"],["TC","Turks and Caicos Islands"],["TV","Tuvalu"],["TR","Türkiye"],["UM","U.S. Minor Outlying Islands"],["VI","U.S. Virgin Islands"],["UG","Uganda"],["UA","Ukraine"],["AE","United Arab Emirates"],["GB","United Kingdom"],["US","United States"],["UY","Uruguay"],["UZ","Uzbekistan"],["VU","Vanuatu"],["VA","Vatican City"],["VE","Venezuela"],["VN","Vietnam"],["WF","Wallis and Futuna"],["EH","Western Sahara"],["YE","Yemen"],["ZM","Zambia"],["ZW","Zimbabwe"],["AX","Åland Islands"]];
 const QUICK_PICKS=["SE","DK","NO","FI","DE","NL","GB"];
-const DURATION_PRESETS=[{l:"30m",v:30,u:"minutes"},{l:"1h",v:1,u:"hours"},{l:"2h",v:2,u:"hours"},{l:"4h",v:4,u:"hours"},{l:"8h",v:8,u:"hours"}];
+const DURATION_PRESETS=[{l:"30m",v:30},{l:"1h",v:60},{l:"2h",v:120},{l:"4h",v:240},{l:"8h",v:480}];
 // Per-unit constraints; overall range is 5 minutes to 7 days. f = minutes per unit.
 const UNIT_CFG={minutes:{f:1,min:5,max:10080,step:5},hours:{f:60,min:1,max:168,step:1},days:{f:1440,min:1,max:7,step:1}};
 const clampDur=(v,u)=>{const c=UNIT_CFG[u];const n=Math.round(Number(v));return isNaN(n)?c.min:Math.min(c.max,Math.max(c.min,n))};
@@ -218,9 +218,11 @@ function App(){
   const[showAddIp,setShowAddIp]=useState(false);
   const[ipInput,setIpInput]=useState("");
   const[noTimer,setNoTimer]=useState(false);
-  const[durUnit,setDurUnit]=useState("hours");
+  const[durMins,setDurMins]=useState(120);
   const[durValue,setDurValue]=useState(2);
-  const duration=noTimer?0:clampDur(durValue,durUnit)*UNIT_CFG[durUnit].f;
+  const[durUnit,setDurUnit]=useState("hours");
+  const[showDurModal,setShowDurModal]=useState(false);
+  const duration=noTimer?0:durMins;
 
   // IP list management
   const[newListName,setNewListName]=useState("");
@@ -361,6 +363,14 @@ function App(){
   const confirmClose=()=>{
     setModal({title:"Lock down?",body:"All public access will be blocked immediately. The WireGuard tunnel will be stopped and Caddy filters will be locked.",confirm:"Lock down",style:{borderColor:"var(--red)",background:"var(--red-d)",color:"var(--red)"},action:doDisable});
   };
+  // Open the custom-duration modal, pre-filled with the current value in its largest whole unit.
+  const openDurModal=()=>{
+    if(durMins%1440===0){setDurUnit("days");setDurValue(durMins/1440)}
+    else if(durMins%60===0){setDurUnit("hours");setDurValue(durMins/60)}
+    else{setDurUnit("minutes");setDurValue(durMins)}
+    setShowDurModal(true);
+  };
+  const applyDurModal=()=>{setDurMins(clampDur(durValue,durUnit)*UNIT_CFG[durUnit].f);setShowDurModal(false)};
 
   const isOpen=status?.enabled;
 
@@ -374,6 +384,26 @@ function App(){
       <style>{`@media(min-width:700px){.lay{grid-template-columns:1fr 260px !important;gap:20px !important}.cd{padding:24px !important}}`}</style>
       <Toast msg={toast?.msg} type={toast?.type}/>
       <Modal show={!!modal} title={modal?.title} body={modal?.body} confirmLabel={modal?.confirm} confirmStyle={modal?.style} onConfirm={modal?.action} onCancel={()=>setModal(null)}/>
+      {showDurModal&&(
+        <div style={S.modal} onClick={e=>{if(e.target===e.currentTarget)setShowDurModal(false)}}>
+          <div style={S.modalBox}>
+            <h3 style={{font:"600 16px var(--sans)",marginBottom:10}}>Custom duration</h3>
+            <div style={S.durRow}>
+              <input type="number" style={S.durIn} min={UNIT_CFG[durUnit].min} max={UNIT_CFG[durUnit].max} step={UNIT_CFG[durUnit].step} value={durValue} onChange={e=>setDurValue(e.target.value)} onBlur={()=>setDurValue(clampDur(durValue,durUnit))} onKeyDown={e=>{if(e.key==="Enter")applyDurModal()}} autoFocus/>
+              <select style={S.durSel} value={durUnit} onChange={e=>{const u=e.target.value;setDurUnit(u);setDurValue(clampDur(durValue,u))}}>
+                <option value="minutes">minutes</option>
+                <option value="hours">hours</option>
+                <option value="days">days</option>
+              </select>
+            </div>
+            <div style={S.hint}>Between 5 minutes and 7 days.</div>
+            <div style={S.modalBtns}>
+              <button style={S.modalCancel} onClick={()=>setShowDurModal(false)}>Cancel</button>
+              <button style={{...S.modalCancel,border:"none",background:"var(--blu)",color:"#0a0c10"}} onClick={applyDurModal}>Set</button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Header */}
       <div style={S.hdr}>
@@ -485,21 +515,14 @@ function App(){
                 <div style={S.lb}>Duration</div>
                 <div style={{...S.hint,marginTop:0,marginBottom:10}}>How long should the latch stay open before auto-locking?</div>
                 <Toggle on={!noTimer} onChange={()=>setNoTimer(!noTimer)} label={noTimer?"No timer (manual close only)":"Auto-close after..."}/>
-                {!noTimer&&<>
-                  <div style={S.durRow}>
-                    <input type="number" style={S.durIn} min={UNIT_CFG[durUnit].min} max={UNIT_CFG[durUnit].max} step={UNIT_CFG[durUnit].step} value={durValue} onChange={e=>setDurValue(e.target.value)} onBlur={()=>setDurValue(clampDur(durValue,durUnit))}/>
-                    <select style={S.durSel} value={durUnit} onChange={e=>{const u=e.target.value;setDurUnit(u);setDurValue(clampDur(durValue,u))}}>
-                      <option value="minutes">minutes</option>
-                      <option value="hours">hours</option>
-                      <option value="days">days</option>
-                    </select>
-                  </div>
+                {!noTimer&&(
                   <div style={{...S.dg,marginTop:10}}>
                     {DURATION_PRESETS.map(p=>(
-                      <div key={p.l} style={{...S.db,...((durUnit===p.u&&Number(durValue)===p.v)?S.dbA:{})}} onClick={()=>{setDurUnit(p.u);setDurValue(p.v)}}>{p.l}</div>
+                      <div key={p.v} style={{...S.db,...(durMins===p.v?S.dbA:{})}} onClick={()=>setDurMins(p.v)}>{p.l}</div>
                     ))}
+                    <div style={{...S.db,...(!DURATION_PRESETS.some(p=>p.v===durMins)?S.dbA:{})}} onClick={openDurModal}>{DURATION_PRESETS.some(p=>p.v===durMins)?"Other":fmtDur(durMins)}</div>
                   </div>
-                </>}
+                )}
               </div>
 
               <button style={S.btnGo} onClick={confirmOpen} disabled={acting}>{acting?"Opening...":"Open latch"}</button>
