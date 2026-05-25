@@ -400,7 +400,7 @@ function App(){
                     <div style={S.srch}>
                       <input style={S.srchIn} placeholder="Search countries..." value={countryQuery} onChange={e=>setCountryQuery(e.target.value)} autoFocus/>
                       <div style={S.sr}>
-                        {ALL_COUNTRIES.filter(([c,n])=>!selCountries.has(c)&&!extraCountries.has(c)&&(n.toLowerCase().includes(countryQuery.toLowerCase())||c.toLowerCase().includes(countryQuery.toLowerCase()))).slice(0,10).map(([c,n])=>(
+                        {ALL_COUNTRIES.filter(([c,n])=>!QUICK_PICKS.includes(c)&&!selCountries.has(c)&&!extraCountries.has(c)&&(n.toLowerCase().includes(countryQuery.toLowerCase())||c.toLowerCase().includes(countryQuery.toLowerCase()))).slice(0,10).map(([c,n])=>(
                           <div key={c} style={S.srItem} onClick={()=>addExtraCountry(c)} onMouseOver={e=>e.currentTarget.style.background="var(--bg3)"} onMouseOut={e=>e.currentTarget.style.background=""}>
                             {gf(c)} {c} — {n}
                           </div>
