@@ -32,7 +32,7 @@ const DURATION_PRESETS=[{l:"30m",v:30},{l:"1h",v:60},{l:"2h",v:120},{l:"4h",v:24
 const UNIT_CFG={minutes:{f:1,min:5,max:10080,step:5},hours:{f:60,min:1,max:168,step:1},days:{f:1440,min:1,max:7,step:1}};
 const clampDur=(v,u)=>{const c=UNIT_CFG[u];const n=Math.round(Number(v));return isNaN(n)?c.min:Math.min(c.max,Math.max(c.min,n))};
 const fmtDur=mins=>mins%1440===0?`${mins/1440} day${mins/1440>1?"s":""}`:mins%60===0?`${mins/60} hr`:`${mins} min`;
-const EXTEND_PRESETS=[{l:"+15m",v:15},{l:"+30m",v:30},{l:"+1hr",v:60},{l:"+2hr",v:120}];
+const ADJUST_PRESETS=[{l:"-1h",v:-60},{l:"-30m",v:-30},{l:"-15m",v:-15},{l:"+15m",v:15},{l:"+30m",v:30},{l:"+1h",v:60}];
 const gf=c=>(typeof c==="string"&&/^[A-Za-z]{2}$/.test(c))?String.fromCodePoint(...[...c.toUpperCase()].map(x=>0x1F1E6+x.charCodeAt(0)-65)):"🏳️";
 // Escape user-controlled values before injecting into modal HTML.
 const esc=s=>String(s).replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;"}[c]));
@@ -274,6 +274,8 @@ function App(){
   const[durUnit,setDurUnit]=useState("hours");
   const[durModalAction,setDurModalAction]=useState(null);
   const[durModalMeta,setDurModalMeta]=useState({title:"Custom duration",hint:"Between 5 minutes and 7 days."});
+  const[adjustModalOpen,setAdjustModalOpen]=useState(false);
+  const[adjustMode,setAdjustMode]=useState("extend"); // extend | reduce | set
   const duration=noTimer?0:durMins;
 
   // IP list management
@@ -399,7 +401,15 @@ function App(){
     setActing(true);
     const r=await api("/extend",{method:"POST",body:JSON.stringify({additional_minutes:mins})});
     setActing(false);
-    if(r.error){flash(r.error,"error")}else{setStatus(r);flash(`Extended by ${mins} min`)}
+    if(r.error){flash(r.error,"error")}else{setStatus(r);flash(mins<0?`Reduced by ${-mins} min`:`Extended by ${mins} min`)}
+  };
+
+  const applyAdjustModal=()=>{
+    const mins=clampDur(durValue,durUnit)*UNIT_CFG[durUnit].f;
+    setAdjustModalOpen(false);
+    if(adjustMode==="extend")doExtend(mins);
+    else if(adjustMode==="reduce")doExtend(-mins);
+    else doSetTimer(mins);
   };
 
   // IP list CRUD
@@ -676,9 +686,36 @@ function App(){
 
               {status.expires&&(
                 <div style={S.er}>
-                  <span style={{font:"600 12px var(--sans)",color:"var(--txt3)"}}>Extend:</span>
-                  {EXTEND_PRESETS.map(p=><button key={p.v} style={S.eb} onClick={()=>doExtend(p.v)} disabled={acting}>{p.l}</button>)}
-                  <button style={S.eb} onClick={()=>openDurModal(m=>doExtend(m),60,"Extend by...","This amount will be added to the remaining time.")} disabled={acting}>Other...</button>
+                  <span style={{font:"600 12px var(--sans)",color:"var(--txt3)"}}>Adjust:</span>
+                  {ADJUST_PRESETS.slice(0,3).map(p=><button key={p.v} style={S.eb} onClick={()=>doExtend(p.v)} disabled={acting}>{p.l}</button>)}
+                  <button style={S.eb} onClick={()=>{setAdjustMode("extend");setDurValue(30);setDurUnit("minutes");setAdjustModalOpen(true)}} disabled={acting}>Other...</button>
+                  {ADJUST_PRESETS.slice(3).map(p=><button key={p.v} style={S.eb} onClick={()=>doExtend(p.v)} disabled={acting}>{p.l}</button>)}
+                </div>
+              )}
+
+              {adjustModalOpen&&(
+                <div style={S.modal} onClick={e=>{if(e.target===e.currentTarget)setAdjustModalOpen(false)}}>
+                  <div style={S.modalBox}>
+                    <h3 style={{font:"600 16px var(--sans)",marginBottom:14}}>Adjust timeout</h3>
+                    <div style={{display:"flex",gap:6,marginBottom:14}}>
+                      {[["extend","Extend by"],["reduce","Reduce by"],["set","Set new timer"]].map(([m,l])=>(
+                        <button key={m} style={{flex:1,padding:"7px 4px",borderRadius:6,font:"500 12px var(--sans)",cursor:"pointer",border:"1px solid",borderColor:adjustMode===m?"transparent":"var(--bdr)",background:adjustMode===m?"var(--blu)":"var(--bg4)",color:adjustMode===m?"#0a0c10":"var(--txt2)",transition:"all .15s"}} onClick={()=>setAdjustMode(m)}>{l}</button>
+                      ))}
+                    </div>
+                    <div style={S.durRow}>
+                      <input type="number" style={S.durIn} min={UNIT_CFG[durUnit].min} max={UNIT_CFG[durUnit].max} step={UNIT_CFG[durUnit].step} value={durValue} onChange={e=>setDurValue(e.target.value)} onBlur={()=>setDurValue(clampDur(durValue,durUnit))} onKeyDown={e=>{if(e.key==="Enter")applyAdjustModal()}} autoFocus/>
+                      <select style={S.durSel} value={durUnit} onChange={e=>{const u=e.target.value;setDurUnit(u);setDurValue(clampDur(durValue,u))}}>
+                        <option value="minutes">minutes</option>
+                        <option value="hours">hours</option>
+                        <option value="days">days</option>
+                      </select>
+                    </div>
+                    <div style={S.hint}>{adjustMode==="extend"?"Added to the remaining time.":adjustMode==="reduce"?"Subtracted from the remaining time.":"Replaces the current expiry with a new timer from now."}</div>
+                    <div style={S.modalBtns}>
+                      <button style={S.modalCancel} onClick={()=>setAdjustModalOpen(false)}>Cancel</button>
+                      <button style={{...S.modalCancel,border:"none",background:"var(--blu)",color:"#0a0c10"}} onClick={applyAdjustModal}>Apply</button>
+                    </div>
+                  </div>
                 </div>
               )}
 
