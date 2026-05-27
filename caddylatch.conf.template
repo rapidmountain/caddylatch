@@ -12,6 +12,16 @@ listen_port=8450
 # WireGuard interface managed by CaddyLatch
 wg_interface=wg0
 
+# WireGuard control mode. Controls whether CaddyLatch starts/stops the tunnel.
+#   none   — CaddyLatch never touches WireGuard. Manage it independently via
+#             systemd (always-on). Recommended when any services need the tunnel
+#             regardless of latch state (e.g. Authentik OIDC, WebFinger).
+#   auto   — WireGuard starts on enable, stops on disable (original behavior).
+#             Suitable only when no services need always-on tunnel access.
+#   manual — Enable/disable only controls the Caddy filter. A separate UI
+#             control and API (/tunnel/up, /tunnel/down) manages the tunnel.
+wg_control=none
+
 # --- Caddy Integration ---
 # Path to the dynamic filter file CaddyLatch writes
 caddy_filter_file=/etc/caddy/filter-caddylatch.caddy
@@ -22,15 +32,17 @@ geoip_db_path=/var/lib/GeoIP/GeoLite2-Country.mmdb
 # Command to reload Caddy after filter changes
 caddy_reload_cmd=systemctl reload caddy
 
+# Seconds to wait before sending a Caddy reload after a state change.
+# Rapid changes within this window are collapsed into a single reload.
+# Also used as the UI cooldown after open/close actions.
+reload_debounce_seconds=5
+
 # WireGuard tunnel peer IP to exempt from geo filtering
 wg_peer_ip=10.100.0.1
 
 # --- Timer ---
 # Default tunnel duration in minutes (used if no duration specified)
 default_duration_minutes=120
-
-# Maximum allowed tunnel duration in minutes
-max_duration_minutes=480
 
 # Interval in minutes for "tunnel still open" reminder notifications
 # Set to 0 to disable reminders

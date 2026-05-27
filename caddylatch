@@ -64,13 +64,15 @@ DEFAULT_CONFIG = {
     "listen_host": "127.0.0.1",
     "listen_port": "8450",
     "wg_interface": "wg0",
+    "wg_control": "none",
     "caddy_filter_file": "/etc/caddy/filter-caddylatch.caddy",
     "geoip_db_path": "/var/lib/GeoIP/GeoLite2-Country.mmdb",
     "caddy_reload_cmd": "systemctl reload caddy",
     "wg_peer_ip": "10.100.0.1",
     "default_duration_minutes": "120",
-    "max_duration_minutes": "480",
+    "reload_debounce_seconds": "5",
     "reminder_interval_minutes": "120",
+    "ntfy_enabled": "true",
     "ntfy_url": "",
     "ntfy_topic": "caddylatch",
     "ntfy_token": "",
@@ -79,12 +81,24 @@ DEFAULT_CONFIG = {
     "ntfy_priority": "3",
     "ntfy_alert_priority": "5",
     "display_timezone": "UTC",
+    "quick_pick_countries": "SE,DK,NO,FI,DE,NL,GB",
     "healthchecks_url": "",
     "state_file": "/var/lib/caddylatch/state.json",
     "ip_lists_file": "/var/lib/caddylatch/ip-lists.json",
     "log_file": "/var/log/caddylatch/caddylatch.log",
     "log_level": "INFO",
+
 }
+
+# Settings keys exposed via GET/PUT /settings (subset safe to edit at runtime)
+SETTINGS_KEYS = [
+    "ntfy_enabled", "ntfy_url", "ntfy_topic", "ntfy_user", "ntfy_pass", "ntfy_token",
+    "ntfy_priority", "ntfy_alert_priority",
+    "display_timezone", "default_duration_minutes", "reminder_interval_minutes",
+    "reload_debounce_seconds", "quick_pick_countries",
+]
+WRITE_ONLY_KEYS = {"ntfy_pass", "ntfy_token"}
+VALID_CC_RE = __import__("re").compile(r"^[A-Z]{2}$")
 
 CONFIG_PATH = "/etc/caddylatch/caddylatch.conf"
 
@@ -103,6 +117,108 @@ def load_config(path: str = CONFIG_PATH) -> dict:
     except FileNotFoundError:
         logging.warning(f"Config not found at {path}, using defaults")
     return cfg
+
+
+# ---------------------------------------------------------------------------
+# Settings helpers
+# ---------------------------------------------------------------------------
+
+def _mask_settings(cfg: dict) -> dict:
+    """Return a copy of the exposed settings with write-only fields masked."""
+    result = {}
+    for key in SETTINGS_KEYS:
+        if key in WRITE_ONLY_KEYS:
+            result[key] = "****" if cfg.get(key) else ""
+        elif key in ("ntfy_priority", "ntfy_alert_priority"):
+            result[key] = int(cfg.get(key, 3))
+        elif key in ("default_duration_minutes", "reminder_interval_minutes", "reload_debounce_seconds"):
+            result[key] = int(cfg.get(key, 0))
+        else:
+            result[key] = cfg.get(key, "")
+    result["available_timezones"] = sorted(
+        __import__("zoneinfo").available_timezones()
+    )
+    return result
+
+
+def _validate_settings(updates: dict) -> str | None:
+    """Return an error string, or None if all values are valid."""
+    import re
+    for key, value in updates.items():
+        if key not in SETTINGS_KEYS:
+            continue
+        if key == "ntfy_enabled":
+            if str(value).lower() not in ("true", "false"):
+                return "ntfy_enabled must be true or false"
+        elif key in ("ntfy_priority", "ntfy_alert_priority"):
+            try:
+                v = int(value)
+                if not 1 <= v <= 5:
+                    return f"{key} must be between 1 and 5"
+            except (TypeError, ValueError):
+                return f"{key} must be an integer 1–5"
+        elif key == "display_timezone":
+            try:
+                from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
+                ZoneInfo(str(value))
+            except Exception:
+                return f"Invalid timezone: {value}"
+        elif key == "default_duration_minutes":
+            try:
+                if int(value) <= 0:
+                    return "default_duration_minutes must be > 0"
+            except (TypeError, ValueError):
+                return "default_duration_minutes must be a positive integer"
+        elif key == "reminder_interval_minutes":
+            try:
+                if int(value) < 0:
+                    return "reminder_interval_minutes must be >= 0"
+            except (TypeError, ValueError):
+                return "reminder_interval_minutes must be an integer >= 0"
+        elif key == "reload_debounce_seconds":
+            try:
+                if int(value) < 1:
+                    return "reload_debounce_seconds must be >= 1"
+            except (TypeError, ValueError):
+                return "reload_debounce_seconds must be an integer >= 1"
+        elif key == "quick_pick_countries":
+            codes = [c.strip() for c in str(value).split(",") if c.strip()]
+            if len(codes) > 12:
+                return "quick_pick_countries: maximum 12 country codes"
+            for code in codes:
+                if not VALID_CC_RE.match(code):
+                    return f"quick_pick_countries: invalid country code '{code}'"
+    return None
+
+
+def _write_settings_to_config(path: str, updates: dict) -> None:
+    """Write updated settings back to the config file, preserving comments and unexposed keys."""
+    try:
+        with open(path) as f:
+            lines = f.readlines()
+    except FileNotFoundError:
+        lines = []
+
+    written = set()
+    new_lines = []
+    for line in lines:
+        stripped = line.strip()
+        if stripped and not stripped.startswith("#") and "=" in stripped:
+            key, _, _ = stripped.partition("=")
+            key = key.strip()
+            if key in updates:
+                new_lines.append(f"{key}={updates[key]}\n")
+                written.add(key)
+                continue
+        new_lines.append(line)
+
+    # Append any keys not found in the existing file
+    for key, value in updates.items():
+        if key not in written:
+            new_lines.append(f"{key}={value}\n")
+
+    with open(path, "w") as f:
+        f.writelines(new_lines)
 
 
 # ---------------------------------------------------------------------------
@@ -140,6 +256,10 @@ DEFAULT_STATE = {
     "disabled_reason": None,
     "last_opened": None,
     "last_closed": None,
+    # Last-used country selection, preserved across a lock so the web UI can
+    # restore the previous configuration instead of a hardcoded default.
+    "last_countries": [],
+    "last_all_countries": False,
 }
 
 
@@ -489,11 +609,38 @@ def _ntfy_worker(cfg: dict, title: str, message: str, priority: str) -> None:
 
 def send_ntfy(cfg: dict, title: str, message: str, priority: int | None = None) -> None:
     """Send ntfy notification asynchronously (non-blocking)."""
+    if str(cfg.get("ntfy_enabled", "true")).lower() != "true":
+        return
     if not cfg.get("ntfy_url") or not cfg.get("ntfy_topic"):
         return
     prio = str(priority or cfg["ntfy_priority"])
     t = threading.Thread(target=_ntfy_worker, args=(cfg, title, message, prio), daemon=True)
     t.start()
+
+
+def _ntfy_send_sync(cfg: dict, title: str, message: str, priority: str) -> tuple[bool, str]:
+    """Synchronous ntfy send. Returns (success, error_message)."""
+    if str(cfg.get("ntfy_enabled", "true")).lower() != "true":
+        return False, "ntfy is disabled"
+    if not cfg.get("ntfy_url") or not cfg.get("ntfy_topic"):
+        return False, "ntfy_url or ntfy_topic not configured"
+    url = f"{cfg['ntfy_url']}/{cfg['ntfy_topic']}"
+    headers: dict = {"Priority": priority, "Tags": "white_check_mark"}
+    headers["Title"] = title.encode("utf-8")
+    ntfy_token = cfg.get("ntfy_token", "")
+    ntfy_user = cfg.get("ntfy_user", "")
+    ntfy_pass = cfg.get("ntfy_pass", "")
+    if ntfy_token:
+        headers["Authorization"] = f"Bearer {ntfy_token}"
+    elif ntfy_user and ntfy_pass:
+        cred = base64.b64encode(f"{ntfy_user}:{ntfy_pass}".encode()).decode()
+        headers["Authorization"] = f"Basic {cred}"
+    try:
+        req = urllib.request.Request(url, data=message.encode("utf-8"), headers=headers)
+        urllib.request.urlopen(req, timeout=5)
+        return True, ""
+    except Exception as e:
+        return False, str(e)
 
 
 def ping_healthchecks(cfg: dict, status: str = "") -> None:
@@ -522,6 +669,10 @@ class LatchController:
         self._reminder_stop = threading.Event()
         self._reminder_thread: threading.Thread | None = None
         self._lock = threading.Lock()
+        self._reload_timer: threading.Timer | None = None
+        self._reload_lock = threading.Lock()
+        self._caddy_synced: bool = True
+        self._caddy_error: str | None = None
         self._start_time = now_utc()
         self._reconcile_on_startup()
 
@@ -560,7 +711,7 @@ class LatchController:
                     return
 
             logging.info("Reconciling: latch should be open, ensuring system state matches")
-            if not wg_is_up(wg_iface):
+            if self.cfg.get("wg_control") == "auto" and not wg_is_up(wg_iface):
                 wg_up(wg_iface)
 
             all_ips = self._resolve_ips(
@@ -573,7 +724,7 @@ class LatchController:
                 all_ips,
                 current.get("all_countries", False),
             )
-            reload_caddy(self.cfg["caddy_reload_cmd"])
+            self._schedule_reload()
             if current["expires"]:
                 self._start_timer()
             self._start_reminder()
@@ -585,11 +736,11 @@ class LatchController:
             )
         else:
             logging.info("Reconciling: latch should be locked, ensuring system state matches")
-            if wg_is_up(wg_iface):
+            if self.cfg.get("wg_control") == "auto" and wg_is_up(wg_iface):
                 logging.warning("WireGuard is up but latch is locked — stopping")
                 wg_down(wg_iface)
             write_filter_locked(self.cfg)
-            reload_caddy(self.cfg["caddy_reload_cmd"])
+            self._schedule_reload()
 
     def _resolve_ips(self, direct_ips: list[str], list_names: list[str]) -> list[str]:
         """Combine direct IPs with resolved IP list entries, deduplicated."""
@@ -597,22 +748,44 @@ class LatchController:
         all_ips.extend(self.ip_lists.resolve(list_names))
         return list(dict.fromkeys(all_ips))  # dedupe, preserve order
 
+    def _schedule_reload(self) -> None:
+        """Debounce Caddy reloads: cancel any pending reload and schedule a fresh one."""
+        self._caddy_synced = False
+        self._caddy_error = None
+        debounce = float(self.cfg.get("reload_debounce_seconds", "5"))
+        with self._reload_lock:
+            if self._reload_timer is not None:
+                self._reload_timer.cancel()
+            t = threading.Timer(debounce, self._fire_reload)
+            t.daemon = True
+            t.start()
+            self._reload_timer = t
+
+    def _fire_reload(self) -> None:
+        """Called by the debounce timer — performs the actual Caddy reload."""
+        with self._reload_lock:
+            self._reload_timer = None
+        if reload_caddy(self.cfg["caddy_reload_cmd"]):
+            self._caddy_synced = True
+            self._caddy_error = None
+        else:
+            self._caddy_error = "Caddy reload failed — check service status"
+            send_ntfy(self.cfg, "⚠️ CaddyLatch — Caddy reload failed",
+                      "Check Caddy service status. Manual restart may be required.",
+                      int(self.cfg["ntfy_alert_priority"]))
+
     def enable(self, allowed_ips: list[str], allowed_ip_lists: list[str],
                allowed_countries: list[str], all_countries: bool = False,
                duration_minutes: int | None = None) -> dict:
         """Open the latch."""
         with self._lock:
             wg_iface = self.cfg["wg_interface"]
-            max_dur = int(self.cfg["max_duration_minutes"])
             default_dur = int(self.cfg["default_duration_minutes"])
 
             if duration_minutes is None:
                 duration = default_dur
             else:
                 duration = duration_minutes
-
-            if duration > 0 and duration > max_dur:
-                duration = max_dur
 
             now = now_utc()
             expires_iso = None
@@ -630,36 +803,33 @@ class LatchController:
             # 1. Write filter
             write_filter_open(self.cfg, allowed_countries, all_ips, all_countries)
 
-            # 2. Reload Caddy
-            if not reload_caddy(self.cfg["caddy_reload_cmd"]):
-                write_filter_locked(self.cfg)
-                reload_caddy(self.cfg["caddy_reload_cmd"])
-                send_ntfy(self.cfg, "⚠️ CaddyLatch — FAILED to open",
-                          "Caddy reload failed, filters rolled back",
-                          int(self.cfg["ntfy_alert_priority"]))
-                return {"error": "Caddy reload failed"}
+            # 2. Start WireGuard (auto mode only)
+            if self.cfg.get("wg_control") == "auto":
+                if not wg_up(wg_iface):
+                    write_filter_locked(self.cfg)
+                    self._schedule_reload()
+                    send_ntfy(self.cfg, "⚠️ CaddyLatch — FAILED to open",
+                              "WireGuard failed to start, filters rolled back",
+                              int(self.cfg["ntfy_alert_priority"]))
+                    return {"error": "WireGuard failed to start"}
 
-            # 3. Start WireGuard
-            if not wg_up(wg_iface):
-                write_filter_locked(self.cfg)
-                reload_caddy(self.cfg["caddy_reload_cmd"])
-                send_ntfy(self.cfg, "⚠️ CaddyLatch — FAILED to open",
-                          "WireGuard failed to start, filters rolled back",
-                          int(self.cfg["ntfy_alert_priority"]))
-                return {"error": "WireGuard failed to start"}
-
-            # 4. Persist state
+            # 3. Persist state
             new_state = self.state.update({
                 "enabled": True,
                 "allowed_ips": allowed_ips,
                 "allowed_ip_lists": allowed_ip_lists,
                 "allowed_countries": allowed_countries,
                 "all_countries": all_countries,
+                "last_countries": allowed_countries,
+                "last_all_countries": all_countries,
                 "expires": expires_iso,
                 "enabled_at": now.isoformat(),
                 "last_opened": now.isoformat(),
                 "disabled_reason": None,
             })
+
+            # 4. Schedule Caddy reload (debounced)
+            self._schedule_reload()
 
             # 5. Timer + reminder
             if duration > 0:
@@ -696,16 +866,19 @@ class LatchController:
         is_backstop = reason not in normal_reasons
         priority = int(self.cfg["ntfy_alert_priority"]) if is_backstop else int(self.cfg["ntfy_priority"])
         title = "🔒 CaddyLatch LOCKED (backstop)" if is_backstop else "🔒 CaddyLatch LOCKED"
-        send_ntfy(self.cfg, title, f"Reason: {reason}", priority)
+        wg_managed = self.cfg.get("wg_control") == "auto"
+        msg = f"Reason: {reason}" if wg_managed else f"Reason: {reason} (tunnel remains up)"
+        send_ntfy(self.cfg, title, msg, priority)
 
-        # 2. Stop WireGuard
-        wg_down(wg_iface)
+        # 2. Stop WireGuard (auto mode only)
+        if wg_managed:
+            wg_down(wg_iface)
 
         # 3. Lock filter
         write_filter_locked(self.cfg)
 
-        # 4. Reload Caddy
-        reload_caddy(self.cfg["caddy_reload_cmd"])
+        # 4. Schedule Caddy reload (debounced)
+        self._schedule_reload()
 
         # 5. Persist state
         now = now_utc()
@@ -735,14 +908,15 @@ class LatchController:
                 return {"error": "at least one of countries, IPs, or all_countries required"}
 
             write_filter_open(self.cfg, allowed_countries, all_ips, all_countries)
-            if not reload_caddy(self.cfg["caddy_reload_cmd"]):
-                return {"error": "Caddy reload failed"}
+            self._schedule_reload()
 
             new_state = self.state.update({
                 "allowed_ips": allowed_ips,
                 "allowed_ip_lists": allowed_ip_lists,
                 "allowed_countries": allowed_countries,
                 "all_countries": all_countries,
+                "last_countries": allowed_countries,
+                "last_all_countries": all_countries,
             })
             send_ntfy(self.cfg, "🔓 CaddyLatch filters updated",
                       f"Countries: {'all' if all_countries else ', '.join(allowed_countries) or 'none'}\n"
@@ -756,27 +930,73 @@ class LatchController:
             if not state["enabled"]:
                 return {"error": "latch is not open"}
             if not state["expires"]:
-                return {"error": "latch has no timer to extend"}
+                return {"error": "latch has no timer to adjust"}
 
             current_exp = datetime.fromisoformat(state["expires"])
-            enabled_at = datetime.fromisoformat(state["enabled_at"])
-            max_dur = int(self.cfg["max_duration_minutes"])
-
             new_exp = datetime.fromtimestamp(
                 current_exp.timestamp() + additional_minutes * 60, tz=timezone.utc)
-            total = (new_exp - enabled_at).total_seconds() / 60
-            if total > max_dur:
-                return {"error": f"total duration would exceed max ({max_dur} min)"}
+
+            if new_exp <= now_utc():
+                return {"error": "reduction would expire the timer immediately — use Lock down instead"}
 
             new_state = self.state.update({"expires": new_exp.isoformat()})
             self._start_timer()
 
             tz = self.cfg["display_timezone"]
-            send_ntfy(self.cfg, "⏱️ CaddyLatch extended",
-                      f"New expiry: {format_display_time(new_exp.isoformat(), tz)}\n"
-                      f"Added: {additional_minutes} min")
-            logging.info(f"Timer extended by {additional_minutes} min to {new_exp.isoformat()}")
+            if additional_minutes > 0:
+                send_ntfy(self.cfg, "⏱️ CaddyLatch extended",
+                          f"New expiry: {format_display_time(new_exp.isoformat(), tz)}\n"
+                          f"Added: {additional_minutes} min")
+            else:
+                send_ntfy(self.cfg, "⏱️ CaddyLatch reduced",
+                          f"New expiry: {format_display_time(new_exp.isoformat(), tz)}\n"
+                          f"Subtracted: {-additional_minutes} min")
+            logging.info(f"Timer adjusted by {additional_minutes} min to {new_exp.isoformat()}")
             return new_state
+
+    def set_timer(self, duration_minutes: int) -> dict:
+        """Set or replace the timer on an open session."""
+        with self._lock:
+            state = self.state.get()
+            if not state["enabled"]:
+                return {"error": "latch is not open"}
+            had_timer = bool(state["expires"])
+            now = now_utc()
+            expires = datetime.fromtimestamp(
+                now.timestamp() + duration_minutes * 60, tz=timezone.utc)
+            new_state = self.state.update({"expires": expires.isoformat()})
+            self._start_timer()
+            tz = self.cfg["display_timezone"]
+            title = "⏱️ CaddyLatch timer updated" if had_timer else "⏱️ CaddyLatch timer set"
+            send_ntfy(self.cfg, title,
+                      f"Expires: {format_display_time(expires.isoformat(), tz)}\n"
+                      f"Duration: {duration_minutes} min")
+            logging.info(f"Timer {'updated' if had_timer else 'set'} to {duration_minutes} min, expires {expires.isoformat()}")
+            return new_state
+
+    def tunnel_up(self) -> dict:
+        if self.cfg.get("wg_control") != "manual":
+            return {"error": "tunnel control requires wg_control=manual"}
+        wg_iface = self.cfg["wg_interface"]
+        if wg_is_up(wg_iface):
+            return {"wg_up": True, "wg_control": "manual"}
+        if not wg_up(wg_iface):
+            return {"error": "WireGuard failed to start"}
+        send_ntfy(self.cfg, "🔗 CaddyLatch — Tunnel connected", "WireGuard tunnel is up (manual control)")
+        logging.info("Tunnel brought up via manual control")
+        return {"wg_up": True, "wg_control": "manual"}
+
+    def tunnel_down(self) -> dict:
+        if self.cfg.get("wg_control") != "manual":
+            return {"error": "tunnel control requires wg_control=manual"}
+        wg_iface = self.cfg["wg_interface"]
+        if not wg_is_up(wg_iface):
+            return {"wg_up": False, "wg_control": "manual"}
+        if not wg_down(wg_iface):
+            return {"error": "WireGuard failed to stop"}
+        send_ntfy(self.cfg, "🔌 CaddyLatch — Tunnel disconnected", "WireGuard tunnel is down (manual control)")
+        logging.info("Tunnel brought down via manual control")
+        return {"wg_up": False, "wg_control": "manual"}
 
     def get_stats(self) -> dict:
         """Return operational stats for the web UI."""
@@ -863,6 +1083,12 @@ class LatchController:
             self._reminder_stop.set()
         self._reminder_thread = None
 
+    def restart_reminder(self) -> None:
+        """Restart the reminder thread with the current cfg interval (called after settings change)."""
+        with self._lock:
+            if self.state.enabled:
+                self._start_reminder()
+
 
 # ---------------------------------------------------------------------------
 # HTTP API
@@ -904,13 +1130,31 @@ class APIHandler(BaseHTTPRequestHandler):
         if self.path == "/" or self.path == "/index.html":
             self._serve_web_ui()
 
+        elif self.path == "/manifest.json":
+            self._serve_static("manifest.json", "application/manifest+json")
+
+        elif self.path == "/sw.js":
+            self._serve_static("sw.js", "application/javascript", {"Cache-Control": "no-cache"})
+
+        elif self.path.startswith("/icons/"):
+            name = self.path[len("/icons/"):]
+            if ".." in name or "/" in name or not name:
+                self._json(403, {"error": "forbidden"})
+                return
+            mime = "image/svg+xml" if name.endswith(".svg") else "image/png"
+            self._serve_static(f"icons/{name}", mime)
+
         elif self.path == "/health":
             self._json(200, {"status": "ok", "version": __version__})
 
         elif self.path == "/status":
             state = self.controller.state.get()
             state["wg_up"] = wg_is_up(self.cfg["wg_interface"])
+            state["wg_control"] = self.cfg.get("wg_control", "none")
             state["version"] = __version__
+            state["reload_debounce_seconds"] = float(self.cfg.get("reload_debounce_seconds", "5"))
+            state["caddy_synced"] = self.controller._caddy_synced
+            state["caddy_reload_error"] = self.controller._caddy_error
             self._json(200, state)
 
         elif self.path == "/stats":
@@ -919,31 +1163,50 @@ class APIHandler(BaseHTTPRequestHandler):
         elif self.path == "/ip-lists":
             self._json(200, self.ip_lists.get_all())
 
+        elif self.path == "/settings":
+            self._json(200, _mask_settings(self.cfg))
+
         else:
             self._json(404, {"error": "not found"})
 
     def _serve_web_ui(self) -> None:
         """Serve the web UI HTML file."""
-        # Look for index.html relative to the executable's real path
+        self._serve_static("index.html", "text/html; charset=utf-8")
+
+    def _serve_static(self, filename: str, mime: str, extra_headers: dict | None = None) -> None:
+        """Serve a file from the web/ directory with path-traversal protection."""
         exe = Path(__file__).resolve().parent
-        candidates = [
-            exe / "web" / "index.html",
-            Path("/opt/caddylatch/web/index.html"),
+        web_roots = [
+            exe / "web",
+            Path("/opt/caddylatch/web"),
         ]
-        for path in candidates:
-            if path.exists():
+        for web_root in web_roots:
+            candidate = web_root / filename
+            try:
+                resolved = candidate.resolve()
+                root_resolved = web_root.resolve()
+                # Ensure resolved path stays inside web_root
+                if str(resolved) != str(root_resolved) and not str(resolved).startswith(str(root_resolved) + "/"):
+                    self._json(403, {"error": "forbidden"})
+                    return
+            except Exception:
+                continue
+            if resolved.exists():
                 try:
-                    content = path.read_bytes()
+                    content = resolved.read_bytes()
                     self.send_response(200)
-                    self.send_header("Content-Type", "text/html; charset=utf-8")
+                    self.send_header("Content-Type", mime)
                     self.send_header("Content-Length", str(len(content)))
+                    if extra_headers:
+                        for k, v in extra_headers.items():
+                            self.send_header(k, v)
                     self.end_headers()
                     self.wfile.write(content)
                     return
                 except Exception as e:
-                    logging.error(f"Failed to serve web UI: {e}")
+                    logging.error(f"Failed to serve {filename}: {e}")
                     break
-        self._json(404, {"error": "web UI not found"})
+        self._json(404, {"error": "not found"})
 
     def do_POST(self) -> None:
         if self.path == "/enable":
@@ -970,10 +1233,22 @@ class APIHandler(BaseHTTPRequestHandler):
                 self._json(400, {"error": "missing request body"})
                 return
             mins = body.get("additional_minutes")
-            if not mins or mins <= 0:
-                self._json(400, {"error": "positive additional_minutes required"})
+            if mins is None or mins == 0:
+                self._json(400, {"error": "non-zero additional_minutes required"})
                 return
             result = self.controller.extend(mins)
+            self._json(400 if "error" in result else 200, result)
+
+        elif self.path == "/set-timer":
+            body = self._body()
+            if not body:
+                self._json(400, {"error": "missing request body"})
+                return
+            mins = body.get("duration_minutes")
+            if not mins or mins <= 0:
+                self._json(400, {"error": "positive duration_minutes required"})
+                return
+            result = self.controller.set_timer(mins)
             self._json(400 if "error" in result else 200, result)
 
         elif self.path == "/update-filters":
@@ -989,11 +1264,66 @@ class APIHandler(BaseHTTPRequestHandler):
             )
             self._json(400 if "error" in result else 200, result)
 
+        elif self.path == "/tunnel/up":
+            result = self.controller.tunnel_up()
+            self._json(400 if "error" in result else 200, result)
+
+        elif self.path == "/tunnel/down":
+            result = self.controller.tunnel_down()
+            self._json(400 if "error" in result else 200, result)
+
+        elif self.path == "/test-ntfy":
+            ok, err = _ntfy_send_sync(
+                self.cfg,
+                "CaddyLatch — test notification",
+                "This is a test message to verify your ntfy configuration.",
+                str(self.cfg.get("ntfy_priority", "3")),
+            )
+            self._json(200, {"success": ok} if ok else {"success": False, "error": err})
+
         else:
             self._json(404, {"error": "not found"})
 
     def do_PUT(self) -> None:
-        if self.path.startswith("/ip-lists/"):
+        if self.path == "/settings":
+            body = self._body()
+            if not body:
+                self._json(400, {"error": "missing request body"})
+                return
+            # Filter to only exposed keys
+            updates = {k: v for k, v in body.items() if k in SETTINGS_KEYS}
+            err = _validate_settings(updates)
+            if err:
+                self._json(400, {"error": err})
+                return
+            # Apply in-memory
+            reminder_changed = False
+            for key, value in updates.items():
+                if key in WRITE_ONLY_KEYS and str(value) == "****":
+                    continue  # sentinel means no change
+                if key in ("ntfy_priority", "ntfy_alert_priority",
+                           "default_duration_minutes", "reminder_interval_minutes",
+                           "reload_debounce_seconds"):
+                    self.cfg[key] = str(int(value))
+                else:
+                    self.cfg[key] = str(value)
+                if key == "reminder_interval_minutes":
+                    reminder_changed = True
+            if reminder_changed:
+                self.controller.restart_reminder()
+            # Persist to config file (skip write-only sentinels)
+            file_updates = {}
+            for key, value in updates.items():
+                if key in WRITE_ONLY_KEYS and str(value) == "****":
+                    continue
+                file_updates[key] = self.cfg[key]
+            try:
+                _write_settings_to_config(CONFIG_PATH, file_updates)
+            except Exception as e:
+                logging.error(f"Failed to write config: {e}")
+            self._json(200, _mask_settings(self.cfg))
+
+        elif self.path.startswith("/ip-lists/"):
             name = urllib.parse.unquote(self.path[len("/ip-lists/"):])
             if not name:
                 self._json(400, {"error": "list name required"})
@@ -1041,6 +1371,11 @@ def main() -> None:
     listen_host = cfg["listen_host"]
     if listen_host == "CHANGE_ME":
         logging.error("listen_host is not configured. Edit %s.", CONFIG_PATH)
+        sys.exit(1)
+
+    wg_control = cfg.get("wg_control", "none")
+    if wg_control not in ("none", "auto", "manual"):
+        logging.error("Invalid wg_control value '%s'. Must be none, auto, or manual. Edit %s.", wg_control, CONFIG_PATH)
         sys.exit(1)
 
     logging.info(f"CaddyLatch v{__version__} starting")
