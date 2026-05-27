@@ -468,8 +468,9 @@ function App(){
     }catch(e){flash("Failed to load settings","error");}
     finally{setSettingsLoading(false);}
   },[]);
-  useEffect(()=>{api("/settings").then(d=>{const qp=(d.quick_pick_countries||"").split(",").map(c=>c.trim()).filter(Boolean);if(qp.length)setQuickPicks(qp)}).catch(()=>{})},[]);
+  useEffect(()=>{loadSettings();},[loadSettings]);
   useEffect(()=>{if(view==="settings")loadSettings();},[view,loadSettings]);
+  useEffect(()=>{if(view==="settings")return;const iv=setInterval(loadSettings,30000);return()=>clearInterval(iv)},[view,loadSettings]);
 
   const saveSetting=async(key,value)=>{
     const r=await api("/settings",{method:"PUT",body:JSON.stringify({[key]:value})});
