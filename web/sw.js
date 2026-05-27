@@ -22,6 +22,17 @@ self.addEventListener('activate', e => {
   self.clients.claim();
 });
 
+self.addEventListener('notificationclick', e => {
+  e.notification.close();
+  e.waitUntil(
+    clients.matchAll({type:'window',includeUncontrolled:true}).then(cs=>{
+      const c=cs.find(c=>c.url.startsWith(self.registration.scope));
+      if(c)return c.focus();
+      return clients.openWindow(self.registration.scope);
+    })
+  );
+});
+
 self.addEventListener('fetch', e => {
   const url = new URL(e.request.url);
   // Always network for API calls
