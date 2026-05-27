@@ -72,6 +72,7 @@ DEFAULT_CONFIG = {
     "default_duration_minutes": "120",
     "reload_debounce_seconds": "5",
     "reminder_interval_minutes": "120",
+    "ntfy_enabled": "true",
     "ntfy_url": "",
     "ntfy_topic": "caddylatch",
     "ntfy_token": "",
@@ -91,7 +92,7 @@ DEFAULT_CONFIG = {
 
 # Settings keys exposed via GET/PUT /settings (subset safe to edit at runtime)
 SETTINGS_KEYS = [
-    "ntfy_url", "ntfy_topic", "ntfy_user", "ntfy_pass", "ntfy_token",
+    "ntfy_enabled", "ntfy_url", "ntfy_topic", "ntfy_user", "ntfy_pass", "ntfy_token",
     "ntfy_priority", "ntfy_alert_priority",
     "display_timezone", "default_duration_minutes", "reminder_interval_minutes",
     "reload_debounce_seconds", "quick_pick_countries",
@@ -146,7 +147,10 @@ def _validate_settings(updates: dict) -> str | None:
     for key, value in updates.items():
         if key not in SETTINGS_KEYS:
             continue
-        if key in ("ntfy_priority", "ntfy_alert_priority"):
+        if key == "ntfy_enabled":
+            if str(value).lower() not in ("true", "false"):
+                return "ntfy_enabled must be true or false"
+        elif key in ("ntfy_priority", "ntfy_alert_priority"):
             try:
                 v = int(value)
                 if not 1 <= v <= 5:
@@ -605,6 +609,8 @@ def _ntfy_worker(cfg: dict, title: str, message: str, priority: str) -> None:
 
 def send_ntfy(cfg: dict, title: str, message: str, priority: int | None = None) -> None:
     """Send ntfy notification asynchronously (non-blocking)."""
+    if str(cfg.get("ntfy_enabled", "true")).lower() != "true":
+        return
     if not cfg.get("ntfy_url") or not cfg.get("ntfy_topic"):
         return
     prio = str(priority or cfg["ntfy_priority"])
@@ -614,6 +620,8 @@ def send_ntfy(cfg: dict, title: str, message: str, priority: int | None = None) 
 
 def _ntfy_send_sync(cfg: dict, title: str, message: str, priority: str) -> tuple[bool, str]:
     """Synchronous ntfy send. Returns (success, error_message)."""
+    if str(cfg.get("ntfy_enabled", "true")).lower() != "true":
+        return False, "ntfy is disabled"
     if not cfg.get("ntfy_url") or not cfg.get("ntfy_topic"):
         return False, "ntfy_url or ntfy_topic not configured"
     url = f"{cfg['ntfy_url']}/{cfg['ntfy_topic']}"

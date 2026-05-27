@@ -270,6 +270,7 @@ function App(){
   // Settings view state
   const[settingsData,setSettingsData]=useState(null);
   const[settingsLoading,setSettingsLoading]=useState(false);
+  const[sNtfyEnabled,setSNtfyEnabled]=useState(true);
   const[sNtfyUrl,setSNtfyUrl]=useState("");
   const[sNtfyTopic,setSNtfyTopic]=useState("");
   const[sNtfyAuthMode,setSNtfyAuthMode]=useState("none"); // none | userpass | token
@@ -446,6 +447,7 @@ function App(){
       const picks=qp.length?qp:DEFAULT_QUICK_PICKS;
       setQuickPicks(picks);
       setSQuickPicks(picks);
+      setSNtfyEnabled(d.ntfy_enabled!==false&&d.ntfy_enabled!=="false");
       setSNtfyUrl(d.ntfy_url||"");
       setSNtfyTopic(d.ntfy_topic||"");
       if(d.ntfy_token)setSNtfyAuthMode("token");
@@ -1004,7 +1006,11 @@ function App(){
               {!settingsLoading&&settingsData&&(<>
                 {/* Notifications */}
                 <div style={S.fg}>
-                  <div style={S.lb}>Notifications (ntfy)</div>
+                  <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:sNtfyEnabled?12:0}}>
+                    <div style={S.lb}>Notifications (ntfy)</div>
+                    <Toggle on={sNtfyEnabled} onChange={()=>{const v=!sNtfyEnabled;setSNtfyEnabled(v);saveSetting("ntfy_enabled",v)}} label=""/>
+                  </div>
+                  {sNtfyEnabled&&(<>
                   <div style={{...S.lb,fontSize:10,marginBottom:4}}>Server URL</div>
                   <input style={{...S.ipIn,fontFamily:"var(--sans)",width:"100%",marginBottom:10}} placeholder="https://ntfy.sh" value={sNtfyUrl} onChange={e=>setSNtfyUrl(e.target.value)} onBlur={()=>saveSetting("ntfy_url",sNtfyUrl)}/>
                   <div style={{...S.lb,fontSize:10,marginBottom:4}}>Topic</div>
@@ -1034,6 +1040,7 @@ function App(){
                     </select>
                   </div>
                   <button style={S.ipAb} onClick={testNtfy} disabled={sTestingNtfy}>{sTestingNtfy?"Sending...":"Send test notification"}</button>
+                  </>)}
                 </div>
 
                 {/* Timer defaults */}
