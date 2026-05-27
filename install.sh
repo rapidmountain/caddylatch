@@ -119,7 +119,9 @@ config_merge() {
     esac
 }
 
+UPGRADE=false
 if [[ -f "$CONFIG_DST" ]]; then
+    UPGRADE=true
     info "Existing config found at ${CONFIG_DST}"
     config_merge "$CONFIG_TEMPLATE" "$CONFIG_DST"
 else
@@ -127,6 +129,30 @@ else
     cp "$CONFIG_TEMPLATE" "$CONFIG_DST"
 fi
 chmod 600 "$CONFIG_DST"
+
+# Migration note: wg_control was added in this version with default 'none'.
+# Existing installs previously had implicit 'auto' behaviour (WireGuard managed
+# by CaddyLatch). Warn the operator so they don't silently lose that behaviour.
+if [[ "$UPGRADE" == "true" ]]; then
+    WG_CONTROL=$(grep -E '^[[:space:]]*wg_control[[:space:]]*=' "$CONFIG_DST" 2>/dev/null | tail -n1 | sed 's/^[^=]*=//; s/^[[:space:]]*//; s/[[:space:]]*$//')
+    if [[ "$WG_CONTROL" == "none" ]]; then
+        echo ""
+        echo -e "${YELLOW}╔══════════════════════════════════════════════════════════════╗${NC}"
+        echo -e "${YELLOW}║  Migration notice: wg_control=none                          ║${NC}"
+        echo -e "${YELLOW}╚══════════════════════════════════════════════════════════════╝${NC}"
+        echo ""
+        warn "CaddyLatch will NO LONGER start or stop WireGuard automatically."
+        echo "  Previous behaviour: WireGuard started on enable, stopped on disable."
+        echo "  New behaviour (wg_control=none): CaddyLatch only manages the Caddy filter."
+        echo ""
+        echo "  Ensure WireGuard is enabled and running independently:"
+        echo -e "    ${CYAN}sudo systemctl enable --now wg-quick@$(grep -E '^[[:space:]]*wg_interface[[:space:]]*=' "$CONFIG_DST" 2>/dev/null | tail -n1 | sed 's/^[^=]*=//; s/^[[:space:]]*//; s/[[:space:]]*$//' || echo wg0)${NC}"
+        echo ""
+        echo "  To restore previous behaviour, set in ${CONFIG_DST}:"
+        echo -e "    ${CYAN}wg_control=auto${NC}"
+        echo ""
+    fi
+fi
 
 # Executable
 info "Symlinking executable..."
