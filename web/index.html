@@ -491,7 +491,7 @@ function App(){
 
   // Duplicate IP check
   const ipExistsIn=(ip)=>{
-    if(myIpAddr&&ip===myIpAddr+"/32")return"My IP";
+    if(myIpAddr&&(ip===myIpAddr||ip===myIpAddr+"/32"))return"My IP";
     for(const[name,ips]of Object.entries(ipLists)){
       if(ips.includes(ip))return name;
     }
@@ -502,13 +502,13 @@ function App(){
   const doEnable=async()=>{
     setActing(true);setModal(null);
     setProgressModal({action:'enable',phase:'api',error:null,caddySeen:false,startedAt:Date.now(),debounceMs:(status?.reload_debounce_seconds??5)*1000,wgControl:status?.wg_control});
-    const ips=[...manualIps.filter(m=>m.active).map(m=>m.ip)];
-    if(myIpActive&&myIpAddr)ips.push(myIpAddr+"/32");
+    const ips=ipRestriction?[...manualIps.filter(m=>m.active).map(m=>m.ip)]:[];
+    if(ipRestriction&&myIpActive&&myIpAddr)ips.push(myIpAddr);
     const body={
       allowed_countries:geoRestriction?[...selCountries]:[],
       all_countries:!geoRestriction,
       allowed_ips:ips,
-      allowed_ip_lists:[...activeIpLists],
+      allowed_ip_lists:ipRestriction?[...activeIpLists]:[],
       duration_minutes:duration,
     };
     try{
@@ -572,11 +572,10 @@ function App(){
 
   const addManualIp=()=>{
     const v=ipInput.trim();if(!v)return;
-    const f=v.includes("/")?v:v+"/32";
-    const dup=ipExistsIn(f);
-    if(dup){flash(`IP ${f} already exists in "${dup}"`,"error");return}
-    if(manualIps.some(m=>m.ip===f)){flash(`IP ${f} already added`,"error");return}
-    setManualIps([...manualIps,{ip:f,active:true}]);setIpInput("");
+    const dup=ipExistsIn(v);
+    if(dup){flash(`IP ${v} already exists in "${dup}"`,"error");return}
+    if(manualIps.some(m=>m.ip===v)){flash(`IP ${v} already added`,"error");return}
+    setManualIps([...manualIps,{ip:v,active:true}]);setIpInput("");
   };
 
   const toggleCountry=(c)=>{
@@ -601,7 +600,7 @@ function App(){
       ip="No restriction (allow any IP)";
     }else{
       const parts=[];
-      if(myIpActive&&myIpAddr)parts.push(`${esc(myIpAddr)}/32 (My IP)`);
+      if(myIpActive&&myIpAddr)parts.push(`${esc(myIpAddr)} (My IP)`);
       [...activeIpLists].forEach(name=>{
         const n=(ipLists[name]||[]).length;
         parts.push(`${esc(name)} (${n} IP${n===1?"":"s"})`);
@@ -995,8 +994,8 @@ function App(){
                   <input style={{...S.ipIn,fontFamily:"var(--sans)"}} placeholder="List name" value={newListName} onChange={e=>setNewListName(e.target.value)}/>
                 </div>
                 <div style={S.ipR}>
-                  <input style={S.ipIn} placeholder="Add IP to list" value={newListIpInput} onChange={e=>setNewListIpInput(e.target.value)} onKeyDown={e=>{if(e.key==="Enter"){const v=newListIpInput.trim();if(v){const f=v.includes("/")?v:v+"/32";if(!newListIps.includes(f)){setNewListIps([...newListIps,f])}setNewListIpInput("")}}}}/>
-                  <button style={S.ipAb} onClick={()=>{const v=newListIpInput.trim();if(v){const f=v.includes("/")?v:v+"/32";if(!newListIps.includes(f)){setNewListIps([...newListIps,f])}setNewListIpInput("")}}}>Add</button>
+                  <input style={S.ipIn} placeholder="Add IP to list" value={newListIpInput} onChange={e=>setNewListIpInput(e.target.value)} onKeyDown={e=>{if(e.key==="Enter"){const v=newListIpInput.trim();if(v){if(!newListIps.includes(v)){setNewListIps([...newListIps,v])}setNewListIpInput("")}}}}/>
+                  <button style={S.ipAb} onClick={()=>{const v=newListIpInput.trim();if(v){if(!newListIps.includes(v)){setNewListIps([...newListIps,v])}setNewListIpInput("")}}}>Add</button>
                 </div>
                 {newListIps.length>0&&(
                   <div style={S.tags}>

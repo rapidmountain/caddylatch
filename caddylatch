@@ -486,6 +486,7 @@ def write_filter_open(cfg: dict, countries: list[str], ips: list[str],
     db = cfg["geoip_db_path"]
 
     has_geo = not all_countries and len(countries) > 0
+    ips = [ip if "/" in ip else ip + "/32" for ip in ips]
     has_ips = len(ips) > 0
 
     if all_countries and not has_ips:
