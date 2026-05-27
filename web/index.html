@@ -74,7 +74,7 @@ const S={
   hdrR:{display:"flex",alignItems:"center",gap:8},
   tbtn:{width:34,height:34,borderRadius:6,border:"1px solid var(--bdr)",background:"var(--bg2)",color:"var(--txt2)",display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",fontSize:14},
   bdg:{display:"flex",alignItems:"center",gap:6,padding:"4px 12px",borderRadius:16,font:"700 11px var(--mono)",letterSpacing:"0.6px",border:"1px solid"},
-  bdgOff:{background:"var(--bg2)",color:"var(--txt3)",borderColor:"var(--bdr)"},
+  bdgOff:{background:"var(--amb-d)",color:"var(--amb)",borderColor:"var(--amb)"},
   bdgOn:{background:"var(--grn-d)",color:"var(--grn)",borderColor:"var(--grn)"},
   dot:{width:7,height:7,borderRadius:"50%",display:"inline-block"},
   lay:{display:"grid",gap:16,alignItems:"start"},
@@ -734,7 +734,7 @@ function App(){
                     <path d={isOpen?"M7 11V7a5 5 0 0 1 9.9-1":"M7 11V7a5 5 0 0 1 10 0v4"}/>
                   </svg>
                 </span>
-                <div className="chip-text" style={{...S.dot,background:isOpen?"var(--grn)":"var(--txt3)"}}/>
+                <div className="chip-text" style={{...S.dot,background:isOpen?"var(--grn)":"var(--amb)"}}/>
                 <span className="chip-text">{label}</span>
               </div>
             );
