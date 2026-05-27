@@ -416,13 +416,20 @@ function App(){
     setExtraCountries(new Set(cs.filter(c=>!quickPicks.includes(c))));
   },[status]);
 
+  // Android Chrome/Brave don't support new Notification() from page context — must use SW.
+  const showNotif=(title,opts)=>{
+    if('serviceWorker' in navigator){
+      navigator.serviceWorker.ready.then(r=>r.showNotification(title,opts)).catch(()=>{try{new Notification(title,opts)}catch{}});
+    }else{try{new Notification(title,opts)}catch{}}
+  };
+
   // Browser notifications — fire on state transitions detected by the polling loop
   useEffect(()=>{
     if(!status)return;
     const prev=prevStatusRef.current;
     if(prev===null){prevStatusRef.current=status;return;}
     if(typeof Notification==='undefined'||Notification.permission!=='granted'){prevStatusRef.current=status;return;}
-    const notify=(title,opts)=>{try{new Notification(title,opts)}catch{}};
+    const notify=(title,opts)=>showNotif(title,opts);
     if(!prev.enabled&&status.enabled){
       const countries=status.all_countries?"all countries":(status.allowed_countries?.join(", ")||"none");
       const dur=status.expires?`expires ${fmtTime(status.expires)}`:"no timer";
@@ -1136,10 +1143,10 @@ function App(){
                     </span>
                   </div>
                   {sNotifPerm==="default"&&(
-                    <button style={S.ipAb} onClick={()=>Notification.requestPermission().then(p=>{setSNotifPerm(p);if(p==='granted'){try{new Notification("🔔 Notifications enabled",{body:"You'll be notified when CaddyLatch opens or closes.",icon:"/icons/icon-192.png"})}catch{}}})}>Enable browser notifications</button>
+                    <button style={S.ipAb} onClick={()=>Notification.requestPermission().then(p=>{setSNotifPerm(p);if(p==='granted')showNotif("🔔 Notifications enabled",{body:"You'll be notified when CaddyLatch opens or closes.",icon:"/icons/icon-192.png"})})}>Enable browser notifications</button>
                   )}
                   {sNotifPerm==="granted"&&(
-                    <button style={S.ipAb} onClick={()=>{try{new Notification("🔔 Test notification",{body:"Browser notifications are working.",icon:"/icons/icon-192.png"})}catch{flash("Notification failed — check browser settings","error")}}}>Send test notification</button>
+                    <button style={S.ipAb} onClick={()=>{if('serviceWorker' in navigator){navigator.serviceWorker.ready.then(r=>r.showNotification("🔔 Test notification",{body:"Browser notifications are working.",icon:"/icons/icon-192.png"})).catch(()=>flash("Notification failed — check browser settings","error"))}else{try{new Notification("🔔 Test notification",{body:"Browser notifications are working.",icon:"/icons/icon-192.png"})}catch{flash("Notification failed — check browser settings","error")}}}}>Send test notification</button>
                   )}
                   {sNotifPerm==="denied"&&<div style={{...S.hint,color:"var(--red)"}}>Blocked — change in browser settings</div>}
                 </div>
