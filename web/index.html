@@ -611,6 +611,20 @@ function App(){
         </div>
       </div>
 
+      {(status?.wg_control==="auto"||status?.wg_control==="manual")&&!status?.wg_up&&(
+        <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",flexWrap:"wrap",gap:10,padding:"12px 16px",borderRadius:10,background:"var(--amb-d)",color:"var(--amb)",fontSize:13,border:"1px solid var(--amb)",marginBottom:16}}>
+          <div style={{display:"flex",alignItems:"center",gap:10}}>
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{flexShrink:0}}>
+              <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/>
+              <line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/>
+            </svg>
+            <span><strong>Tunnel is down</strong> — no traffic can reach backend services</span>
+          </div>
+          {status.wg_control==="manual"&&(
+            <button onClick={confirmTunnelUp} style={{padding:"5px 14px",borderRadius:6,border:"1px solid var(--amb)",background:"var(--amb-d)",color:"var(--amb)",font:"600 12px var(--sans)",cursor:"pointer",flexShrink:0}}>Connect tunnel</button>
+          )}
+        </div>
+      )}
       {err&&<div style={S.errBox}>{err}</div>}
 
       <div className="lay" style={S.lay}>
