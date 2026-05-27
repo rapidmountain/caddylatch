@@ -832,6 +832,30 @@ class LatchController:
             logging.info(f"Timer {'updated' if had_timer else 'set'} to {duration_minutes} min, expires {expires.isoformat()}")
             return new_state
 
+    def tunnel_up(self) -> dict:
+        if self.cfg.get("wg_control") != "manual":
+            return {"error": "tunnel control requires wg_control=manual"}
+        wg_iface = self.cfg["wg_interface"]
+        if wg_is_up(wg_iface):
+            return {"wg_up": True, "wg_control": "manual"}
+        if not wg_up(wg_iface):
+            return {"error": "WireGuard failed to start"}
+        send_ntfy(self.cfg, "🔗 CaddyLatch — Tunnel connected", "WireGuard tunnel is up (manual control)")
+        logging.info("Tunnel brought up via manual control")
+        return {"wg_up": True, "wg_control": "manual"}
+
+    def tunnel_down(self) -> dict:
+        if self.cfg.get("wg_control") != "manual":
+            return {"error": "tunnel control requires wg_control=manual"}
+        wg_iface = self.cfg["wg_interface"]
+        if not wg_is_up(wg_iface):
+            return {"wg_up": False, "wg_control": "manual"}
+        if not wg_down(wg_iface):
+            return {"error": "WireGuard failed to stop"}
+        send_ntfy(self.cfg, "🔌 CaddyLatch — Tunnel disconnected", "WireGuard tunnel is down (manual control)")
+        logging.info("Tunnel brought down via manual control")
+        return {"wg_up": False, "wg_control": "manual"}
+
     def get_stats(self) -> dict:
         """Return operational stats for the web UI."""
         state = self.state.get()
@@ -1057,6 +1081,14 @@ class APIHandler(BaseHTTPRequestHandler):
                 allowed_countries=body.get("allowed_countries", []),
                 all_countries=body.get("all_countries", False),
             )
+            self._json(400 if "error" in result else 200, result)
+
+        elif self.path == "/tunnel/up":
+            result = self.controller.tunnel_up()
+            self._json(400 if "error" in result else 200, result)
+
+        elif self.path == "/tunnel/down":
+            result = self.controller.tunnel_down()
             self._json(400 if "error" in result else 200, result)
 
         else:
