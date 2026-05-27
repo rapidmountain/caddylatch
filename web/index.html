@@ -197,13 +197,14 @@ function StepIcon({state}){
 }
 function ProgressModal({modal,progressPct,countdown,onDismiss}){
   if(!modal)return null;
-  const{action,phase,error}=modal;
+  const{action,phase,error,wgControl}=modal;
   const opening=action==='enable';
+  const showWg=wgControl==='auto';
   let wgState,caddyState;
-  if(phase==='api'){wgState='running';caddyState='pending';}
+  if(phase==='api'){wgState='running';caddyState=showWg?'pending':'running';}
   else if(phase==='caddy'){wgState='done';caddyState='running';}
   else if(phase==='done'){wgState='done';caddyState='done';}
-  else if(phase==='error'){wgState='error';caddyState='pending';}
+  else if(phase==='error'){wgState='error';caddyState=showWg?'pending':'error';}
   else{wgState='done';caddyState='error';}
   const isDone=phase==='done';
   const isError=phase==='error'||phase==='caddy_error';
@@ -214,10 +215,12 @@ function ProgressModal({modal,progressPct,countdown,onDismiss}){
       <div style={{...S.modalBox,maxWidth:360}}>
         <h3 style={{font:"600 16px var(--sans)",marginBottom:20,color:isDone?"var(--grn)":isError?"var(--red)":"var(--txt)"}}>{title}</h3>
         <div style={{display:"flex",flexDirection:"column",gap:14}}>
-          <div style={{display:"flex",alignItems:"center",gap:12}}>
-            <StepIcon state={wgState}/>
-            <span style={{fontSize:13,color:wgState==='error'?"var(--red)":wgState==='done'?"var(--txt)":"var(--txt2)"}}>{opening?"Opening WireGuard tunnel":"Stopping WireGuard tunnel"}</span>
-          </div>
+          {showWg&&(
+            <div style={{display:"flex",alignItems:"center",gap:12}}>
+              <StepIcon state={wgState}/>
+              <span style={{fontSize:13,color:wgState==='error'?"var(--red)":wgState==='done'?"var(--txt)":"var(--txt2)"}}>{opening?"Opening WireGuard tunnel":"Stopping WireGuard tunnel"}</span>
+            </div>
+          )}
           <div style={{display:"flex",alignItems:"center",gap:12}}>
             <StepIcon state={caddyState}/>
             <span style={{fontSize:13,color:caddyState==='error'?"var(--red)":caddyState==='done'?"var(--txt)":"var(--txt2)"}}>Reloading Caddy filter</span>
@@ -372,7 +375,7 @@ function App(){
   // Actions
   const doEnable=async()=>{
     setActing(true);setModal(null);
-    setProgressModal({action:'enable',phase:'api',error:null,caddySeen:false,startedAt:Date.now(),debounceMs:(status?.reload_debounce_seconds??5)*1000});
+    setProgressModal({action:'enable',phase:'api',error:null,caddySeen:false,startedAt:Date.now(),debounceMs:(status?.reload_debounce_seconds??5)*1000,wgControl:status?.wg_control});
     const ips=[...manualIps.filter(m=>m.active).map(m=>m.ip)];
     if(myIpActive&&myIpAddr)ips.push(myIpAddr+"/32");
     const body={
@@ -390,7 +393,7 @@ function App(){
 
   const doDisable=async()=>{
     setActing(true);setModal(null);
-    setProgressModal({action:'disable',phase:'api',error:null,caddySeen:false,startedAt:Date.now(),debounceMs:(status?.reload_debounce_seconds??5)*1000});
+    setProgressModal({action:'disable',phase:'api',error:null,caddySeen:false,startedAt:Date.now(),debounceMs:(status?.reload_debounce_seconds??5)*1000,wgControl:status?.wg_control});
     const r=await api("/disable",{method:"POST"});
     setActing(false);
     if(r.error){setProgressModal(m=>m?{...m,phase:'error',error:r.error}:m);}
@@ -465,7 +468,8 @@ function App(){
     setModal({title:"Open the latch?",body:`Traffic will be allowed through with these settings:<br><br><strong>Countries:</strong> ${geo}<br><strong>IPs:</strong> ${ip}<br><strong>Duration:</strong> ${dur}`,confirm:"Open latch",style:{border:"none",background:"var(--grn)",color:"#0a0c10"},action:doEnable});
   };
   const confirmClose=()=>{
-    setModal({title:"Lock down?",body:"All public access will be blocked immediately. The WireGuard tunnel will be stopped and Caddy filters will be locked.",confirm:"Lock down",style:{borderColor:"var(--red)",background:"var(--red-d)",color:"var(--red)"},action:doDisable});
+    const wgLine=status?.wg_control==="auto"?"The WireGuard tunnel will be stopped and Caddy filters will be locked.":"Caddy filters will be locked. The WireGuard tunnel will remain up.";
+    setModal({title:"Lock down?",body:`All public access will be blocked immediately. ${wgLine}`,confirm:"Lock down",style:{borderColor:"var(--red)",background:"var(--red-d)",color:"var(--red)"},action:doDisable});
   };
   // Open the custom-duration modal. cb receives the chosen minutes on confirm.
   const openDurModal=(cb,prefillMins=durMins,title="Custom duration",hint="Between 5 minutes and 7 days.")=>{
@@ -536,8 +540,14 @@ function App(){
           <button style={S.tbtn} onClick={()=>setDark(!dark)}>{dark?"☀️":"🌙"}</button>
           <div style={{...S.bdg,...(isOpen?S.bdgOn:S.bdgOff)}}>
             <div style={{...S.dot,background:isOpen?"var(--grn)":"var(--txt3)"}}/>
-            {isOpen?"OPEN":"LOCKED"}
+            {isOpen?"ALLOWING":"BLOCKING"}
           </div>
+          {(status?.wg_control==="auto"||status?.wg_control==="manual")&&(
+            <div style={{...S.bdg,...(status.wg_up?S.bdgOn:S.bdgOff)}}>
+              <div style={{...S.dot,background:status.wg_up?"var(--grn)":"var(--txt3)"}}/>
+              {status.wg_up?"TUNNEL UP":"TUNNEL DOWN"}
+            </div>
+          )}
         </div>
       </div>
 
@@ -658,7 +668,6 @@ function App(){
                     <span style={{fontSize:11,color:"var(--blu)",cursor:"pointer",marginTop:4}} onClick={()=>openDurModal(m=>doSetTimer(m),60)}>+ Set timer</span>
                   </div>
                 )}
-                <div style={S.tBlk}><span style={S.tLbl}>WireGuard</span><span style={{...S.tValS,color:status.wg_up?"var(--grn)":"var(--red)"}}>{status.wg_up?"UP":"DOWN"}</span></div>
               </div>
 
               <div style={{marginBottom:14}}>
