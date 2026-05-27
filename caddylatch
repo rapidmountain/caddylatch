@@ -569,7 +569,7 @@ class LatchController:
                     return
 
             logging.info("Reconciling: latch should be open, ensuring system state matches")
-            if not wg_is_up(wg_iface):
+            if self.cfg.get("wg_control") == "auto" and not wg_is_up(wg_iface):
                 wg_up(wg_iface)
 
             all_ips = self._resolve_ips(
@@ -594,7 +594,7 @@ class LatchController:
             )
         else:
             logging.info("Reconciling: latch should be locked, ensuring system state matches")
-            if wg_is_up(wg_iface):
+            if self.cfg.get("wg_control") == "auto" and wg_is_up(wg_iface):
                 logging.warning("WireGuard is up but latch is locked — stopping")
                 wg_down(wg_iface)
             write_filter_locked(self.cfg)
