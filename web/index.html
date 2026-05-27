@@ -261,6 +261,8 @@ function App(){
   const toastTm=useRef(null);
   const dismissTm=useRef(null);
   const seeded=useRef(false);
+  const prevStatusRef=useRef(null);
+  const timerWarnFiredRef=useRef(false);
 
   // Quick picks (loaded from settings, used in main form)
   const[quickPicks,setQuickPicks]=useState(DEFAULT_QUICK_PICKS);
@@ -407,6 +409,30 @@ function App(){
     setGeoRestriction(!allC);
     setSelCountries(new Set(cs));
     setExtraCountries(new Set(cs.filter(c=>!quickPicks.includes(c))));
+  },[status]);
+
+  // Browser notifications — fire on state transitions detected by the polling loop
+  useEffect(()=>{
+    if(!status)return;
+    const prev=prevStatusRef.current;
+    if(prev===null){prevStatusRef.current=status;return;}
+    if(typeof Notification==='undefined'||Notification.permission!=='granted'){prevStatusRef.current=status;return;}
+    if(!prev.enabled&&status.enabled){
+      const countries=status.all_countries?"all countries":(status.allowed_countries?.join(", ")||"none");
+      const dur=status.expires?`expires ${fmtTime(status.expires)}`:"no timer";
+      new Notification("🔓 CaddyLatch opened",{body:`${countries} — ${dur}`,icon:"/icons/icon-192.png"});
+      timerWarnFiredRef.current=false;
+    }else if(prev.enabled&&!status.enabled){
+      new Notification("🔒 CaddyLatch locked",{body:status.disabled_reason||"locked",icon:"/icons/icon-192.png"});
+    }
+    if(status.enabled&&status.expires&&!timerWarnFiredRef.current){
+      const rem=new Date(status.expires).getTime()-Date.now();
+      if(rem>0&&rem<=10*60*1000){
+        new Notification("⏱️ CaddyLatch closing soon",{body:"Less than 10 minutes remaining",icon:"/icons/icon-192.png"});
+        timerWarnFiredRef.current=true;
+      }
+    }
+    prevStatusRef.current=status;
   },[status]);
 
   // Settings: load once on mount to seed quick picks, then fully on view entry
