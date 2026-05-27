@@ -12,6 +12,16 @@ listen_port=8450
 # WireGuard interface managed by CaddyLatch
 wg_interface=wg0
 
+# WireGuard control mode. Controls whether CaddyLatch starts/stops the tunnel.
+#   none   — CaddyLatch never touches WireGuard. Manage it independently via
+#             systemd (always-on). Recommended when any services need the tunnel
+#             regardless of latch state (e.g. Authentik OIDC, WebFinger).
+#   auto   — WireGuard starts on enable, stops on disable (original behavior).
+#             Suitable only when no services need always-on tunnel access.
+#   manual — Enable/disable only controls the Caddy filter. A separate UI
+#             control and API (/tunnel/up, /tunnel/down) manages the tunnel.
+wg_control=none
+
 # --- Caddy Integration ---
 # Path to the dynamic filter file CaddyLatch writes
 caddy_filter_file=/etc/caddy/filter-caddylatch.caddy

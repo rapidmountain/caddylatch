@@ -64,6 +64,7 @@ DEFAULT_CONFIG = {
     "listen_host": "127.0.0.1",
     "listen_port": "8450",
     "wg_interface": "wg0",
+    "wg_control": "none",
     "caddy_filter_file": "/etc/caddy/filter-caddylatch.caddy",
     "geoip_db_path": "/var/lib/GeoIP/GeoLite2-Country.mmdb",
     "caddy_reload_cmd": "systemctl reload caddy",
@@ -959,6 +960,7 @@ class APIHandler(BaseHTTPRequestHandler):
         elif self.path == "/status":
             state = self.controller.state.get()
             state["wg_up"] = wg_is_up(self.cfg["wg_interface"])
+            state["wg_control"] = self.cfg.get("wg_control", "none")
             state["version"] = __version__
             state["reload_debounce_seconds"] = float(self.cfg.get("reload_debounce_seconds", "5"))
             state["caddy_synced"] = self.controller._caddy_synced
@@ -1105,6 +1107,11 @@ def main() -> None:
     listen_host = cfg["listen_host"]
     if listen_host == "CHANGE_ME":
         logging.error("listen_host is not configured. Edit %s.", CONFIG_PATH)
+        sys.exit(1)
+
+    wg_control = cfg.get("wg_control", "none")
+    if wg_control not in ("none", "auto", "manual"):
+        logging.error("Invalid wg_control value '%s'. Must be none, auto, or manual. Edit %s.", wg_control, CONFIG_PATH)
         sys.exit(1)
 
     logging.info(f"CaddyLatch v{__version__} starting")
