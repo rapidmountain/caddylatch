@@ -80,12 +80,24 @@ DEFAULT_CONFIG = {
     "ntfy_priority": "3",
     "ntfy_alert_priority": "5",
     "display_timezone": "UTC",
+    "quick_pick_countries": "SE,DK,NO,FI,DE,NL,GB",
     "healthchecks_url": "",
     "state_file": "/var/lib/caddylatch/state.json",
     "ip_lists_file": "/var/lib/caddylatch/ip-lists.json",
     "log_file": "/var/log/caddylatch/caddylatch.log",
     "log_level": "INFO",
+
 }
+
+# Settings keys exposed via GET/PUT /settings (subset safe to edit at runtime)
+SETTINGS_KEYS = [
+    "ntfy_url", "ntfy_topic", "ntfy_user", "ntfy_pass", "ntfy_token",
+    "ntfy_priority", "ntfy_alert_priority",
+    "display_timezone", "default_duration_minutes", "reminder_interval_minutes",
+    "reload_debounce_seconds", "quick_pick_countries",
+]
+WRITE_ONLY_KEYS = {"ntfy_pass", "ntfy_token"}
+VALID_CC_RE = __import__("re").compile(r"^[A-Z]{2}$")
 
 CONFIG_PATH = "/etc/caddylatch/caddylatch.conf"
 
@@ -104,6 +116,105 @@ def load_config(path: str = CONFIG_PATH) -> dict:
     except FileNotFoundError:
         logging.warning(f"Config not found at {path}, using defaults")
     return cfg
+
+
+# ---------------------------------------------------------------------------
+# Settings helpers
+# ---------------------------------------------------------------------------
+
+def _mask_settings(cfg: dict) -> dict:
+    """Return a copy of the exposed settings with write-only fields masked."""
+    result = {}
+    for key in SETTINGS_KEYS:
+        if key in WRITE_ONLY_KEYS:
+            result[key] = "****" if cfg.get(key) else ""
+        elif key in ("ntfy_priority", "ntfy_alert_priority"):
+            result[key] = int(cfg.get(key, 3))
+        elif key in ("default_duration_minutes", "reminder_interval_minutes", "reload_debounce_seconds"):
+            result[key] = int(cfg.get(key, 0))
+        else:
+            result[key] = cfg.get(key, "")
+    result["available_timezones"] = sorted(
+        __import__("zoneinfo").available_timezones()
+    )
+    return result
+
+
+def _validate_settings(updates: dict) -> str | None:
+    """Return an error string, or None if all values are valid."""
+    import re
+    for key, value in updates.items():
+        if key not in SETTINGS_KEYS:
+            continue
+        if key in ("ntfy_priority", "ntfy_alert_priority"):
+            try:
+                v = int(value)
+                if not 1 <= v <= 5:
+                    return f"{key} must be between 1 and 5"
+            except (TypeError, ValueError):
+                return f"{key} must be an integer 1–5"
+        elif key == "display_timezone":
+            try:
+                from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
+                ZoneInfo(str(value))
+            except Exception:
+                return f"Invalid timezone: {value}"
+        elif key == "default_duration_minutes":
+            try:
+                if int(value) <= 0:
+                    return "default_duration_minutes must be > 0"
+            except (TypeError, ValueError):
+                return "default_duration_minutes must be a positive integer"
+        elif key == "reminder_interval_minutes":
+            try:
+                if int(value) < 0:
+                    return "reminder_interval_minutes must be >= 0"
+            except (TypeError, ValueError):
+                return "reminder_interval_minutes must be an integer >= 0"
+        elif key == "reload_debounce_seconds":
+            try:
+                if int(value) < 1:
+                    return "reload_debounce_seconds must be >= 1"
+            except (TypeError, ValueError):
+                return "reload_debounce_seconds must be an integer >= 1"
+        elif key == "quick_pick_countries":
+            codes = [c.strip() for c in str(value).split(",") if c.strip()]
+            if len(codes) > 12:
+                return "quick_pick_countries: maximum 12 country codes"
+            for code in codes:
+                if not VALID_CC_RE.match(code):
+                    return f"quick_pick_countries: invalid country code '{code}'"
+    return None
+
+
+def _write_settings_to_config(path: str, updates: dict) -> None:
+    """Write updated settings back to the config file, preserving comments and unexposed keys."""
+    try:
+        with open(path) as f:
+            lines = f.readlines()
+    except FileNotFoundError:
+        lines = []
+
+    written = set()
+    new_lines = []
+    for line in lines:
+        stripped = line.strip()
+        if stripped and not stripped.startswith("#") and "=" in stripped:
+            key, _, _ = stripped.partition("=")
+            key = key.strip()
+            if key in updates:
+                new_lines.append(f"{key}={updates[key]}\n")
+                written.add(key)
+                continue
+        new_lines.append(line)
+
+    # Append any keys not found in the existing file
+    for key, value in updates.items():
+        if key not in written:
+            new_lines.append(f"{key}={value}\n")
+
+    with open(path, "w") as f:
+        f.writelines(new_lines)
 
 
 # ---------------------------------------------------------------------------
@@ -499,6 +610,29 @@ def send_ntfy(cfg: dict, title: str, message: str, priority: int | None = None) 
     prio = str(priority or cfg["ntfy_priority"])
     t = threading.Thread(target=_ntfy_worker, args=(cfg, title, message, prio), daemon=True)
     t.start()
+
+
+def _ntfy_send_sync(cfg: dict, title: str, message: str, priority: str) -> tuple[bool, str]:
+    """Synchronous ntfy send. Returns (success, error_message)."""
+    if not cfg.get("ntfy_url") or not cfg.get("ntfy_topic"):
+        return False, "ntfy_url or ntfy_topic not configured"
+    url = f"{cfg['ntfy_url']}/{cfg['ntfy_topic']}"
+    headers: dict = {"Priority": priority, "Tags": "white_check_mark"}
+    headers["Title"] = title.encode("utf-8")
+    ntfy_token = cfg.get("ntfy_token", "")
+    ntfy_user = cfg.get("ntfy_user", "")
+    ntfy_pass = cfg.get("ntfy_pass", "")
+    if ntfy_token:
+        headers["Authorization"] = f"Bearer {ntfy_token}"
+    elif ntfy_user and ntfy_pass:
+        cred = base64.b64encode(f"{ntfy_user}:{ntfy_pass}".encode()).decode()
+        headers["Authorization"] = f"Basic {cred}"
+    try:
+        req = urllib.request.Request(url, data=message.encode("utf-8"), headers=headers)
+        urllib.request.urlopen(req, timeout=5)
+        return True, ""
+    except Exception as e:
+        return False, str(e)
 
 
 def ping_healthchecks(cfg: dict, status: str = "") -> None:
@@ -941,6 +1075,12 @@ class LatchController:
             self._reminder_stop.set()
         self._reminder_thread = None
 
+    def restart_reminder(self) -> None:
+        """Restart the reminder thread with the current cfg interval (called after settings change)."""
+        with self._lock:
+            if self.state.enabled:
+                self._start_reminder()
+
 
 # ---------------------------------------------------------------------------
 # HTTP API
@@ -1014,6 +1154,9 @@ class APIHandler(BaseHTTPRequestHandler):
 
         elif self.path == "/ip-lists":
             self._json(200, self.ip_lists.get_all())
+
+        elif self.path == "/settings":
+            self._json(200, _mask_settings(self.cfg))
 
         else:
             self._json(404, {"error": "not found"})
@@ -1121,11 +1264,58 @@ class APIHandler(BaseHTTPRequestHandler):
             result = self.controller.tunnel_down()
             self._json(400 if "error" in result else 200, result)
 
+        elif self.path == "/test-ntfy":
+            ok, err = _ntfy_send_sync(
+                self.cfg,
+                "CaddyLatch — test notification",
+                "This is a test message to verify your ntfy configuration.",
+                str(self.cfg.get("ntfy_priority", "3")),
+            )
+            self._json(200, {"success": ok} if ok else {"success": False, "error": err})
+
         else:
             self._json(404, {"error": "not found"})
 
     def do_PUT(self) -> None:
-        if self.path.startswith("/ip-lists/"):
+        if self.path == "/settings":
+            body = self._body()
+            if not body:
+                self._json(400, {"error": "missing request body"})
+                return
+            # Filter to only exposed keys
+            updates = {k: v for k, v in body.items() if k in SETTINGS_KEYS}
+            err = _validate_settings(updates)
+            if err:
+                self._json(400, {"error": err})
+                return
+            # Apply in-memory
+            reminder_changed = False
+            for key, value in updates.items():
+                if key in WRITE_ONLY_KEYS and str(value) == "****":
+                    continue  # sentinel means no change
+                if key in ("ntfy_priority", "ntfy_alert_priority",
+                           "default_duration_minutes", "reminder_interval_minutes",
+                           "reload_debounce_seconds"):
+                    self.cfg[key] = str(int(value))
+                else:
+                    self.cfg[key] = str(value)
+                if key == "reminder_interval_minutes":
+                    reminder_changed = True
+            if reminder_changed:
+                self.controller.restart_reminder()
+            # Persist to config file (skip write-only sentinels)
+            file_updates = {}
+            for key, value in updates.items():
+                if key in WRITE_ONLY_KEYS and str(value) == "****":
+                    continue
+                file_updates[key] = self.cfg[key]
+            try:
+                _write_settings_to_config(CONFIG_PATH, file_updates)
+            except Exception as e:
+                logging.error(f"Failed to write config: {e}")
+            self._json(200, _mask_settings(self.cfg))
+
+        elif self.path.startswith("/ip-lists/"):
             name = urllib.parse.unquote(self.path[len("/ip-lists/"):])
             if not name:
                 self._json(400, {"error": "list name required"})
