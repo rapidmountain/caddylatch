@@ -2,9 +2,13 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <title>CaddyLatch</title>
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🔒</text></svg>">
+<link rel="manifest" href="/manifest.json">
+<meta name="theme-color" content="#0a0c10">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
@@ -13,7 +17,7 @@
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
 :root{--bg:#0a0c10;--bg2:#12151b;--bg3:#181c24;--bg4:#1e232d;--bdr:#2a3040;--bdr2:#3a4258;--txt:#e4e8f0;--txt2:#8892a8;--txt3:#555e72;--grn:#34d399;--grn-d:rgba(52,211,153,.1);--red:#f87171;--red-d:rgba(248,113,113,.1);--blu:#60a5fa;--blu-d:rgba(96,165,250,.1);--amb:#fbbf24;--amb-d:rgba(251,191,36,.1);--pur:#a78bfa;--pur-d:rgba(167,139,250,.1);--sans:'Plus Jakarta Sans',-apple-system,sans-serif;--mono:'JetBrains Mono',monospace}
 [data-theme="light"]{--bg:#f4f5f7;--bg2:#fff;--bg3:#f0f1f4;--bg4:#ebedf0;--bdr:#dde0e6;--bdr2:#c8ccd4;--txt:#1a1e28;--txt2:#5a6478;--txt3:#9098aa;--grn:#059669;--grn-d:rgba(5,150,105,.08);--red:#dc2626;--red-d:rgba(220,38,38,.08);--blu:#2563eb;--blu-d:rgba(37,99,235,.08);--amb:#d97706;--amb-d:rgba(217,119,6,.08);--pur:#7c3aed;--pur-d:rgba(124,58,237,.08)}
-body{font-family:var(--sans);background:var(--bg);color:var(--txt);min-height:100vh;-webkit-font-smoothing:antialiased;transition:background .2s,color .2s}
+body{font-family:var(--sans);background:var(--bg);color:var(--txt);min-height:100vh;-webkit-font-smoothing:antialiased;transition:background .2s,color .2s;padding:env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left)}
 input::placeholder{color:var(--txt3)}
 ::-webkit-scrollbar{width:6px}::-webkit-scrollbar-thumb{background:var(--bdr);border-radius:3px}
 @keyframes spin{to{transform:rotate(360deg)}}.spin{animation:spin .8s linear infinite;transform-origin:center;display:inline-block}
@@ -240,6 +244,7 @@ function ProgressModal({modal,progressPct,countdown,onDismiss}){
 // ── Main App ──
 function App(){
   const[dark,setDark]=useState(()=>{try{return localStorage.getItem('cl-theme')!=='light'}catch{return true}});
+  const[installPrompt,setInstallPrompt]=useState(null);
   const[status,setStatus]=useState(null);
   const[stats,setStats]=useState(null);
   const[ipLists,setIpLists]=useState({});
@@ -350,6 +355,21 @@ function App(){
 
   // Theme
   useEffect(()=>{document.documentElement.setAttribute("data-theme",dark?"dark":"light");try{localStorage.setItem('cl-theme',dark?'dark':'light')}catch{}},[dark]);
+
+  // Service worker + install prompt
+  useEffect(()=>{
+    if('serviceWorker' in navigator){
+      navigator.serviceWorker.register('/sw.js').catch(()=>{});
+    }
+    const dismissed=()=>{try{return localStorage.getItem('cl-install-dismissed')==='1'}catch{return false}};
+    const handler=e=>{
+      e.preventDefault();
+      if(!dismissed())setInstallPrompt(e);
+    };
+    window.addEventListener('beforeinstallprompt',handler);
+    window.addEventListener('appinstalled',()=>setInstallPrompt(null));
+    return()=>window.removeEventListener('beforeinstallprompt',handler);
+  },[]);
 
   // Seed the country form once from the last-used config (live when open,
   // otherwise the persisted last_countries) so it reflects the previous
@@ -504,6 +524,14 @@ function App(){
     if(r.error){flash(r.error,"error")}else{setStatus(r);flash("Timer set")}
   };
 
+  const doInstall=async()=>{
+    if(!installPrompt)return;
+    installPrompt.prompt();
+    const{outcome}=await installPrompt.userChoice;
+    setInstallPrompt(null);
+    if(outcome==='dismissed'){try{localStorage.setItem('cl-install-dismissed','1')}catch{}}
+  };
+
   const isOpen=status?.enabled;
 
   const q=countryQuery.toLowerCase();
@@ -553,6 +581,15 @@ function App(){
           </div>
         </div>
         <div style={S.hdrR}>
+          {installPrompt&&(
+            <button style={S.tbtn} onClick={doInstall} title="Install CaddyLatch app">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+                <polyline points="7 10 12 15 17 10"/>
+                <line x1="12" y1="15" x2="12" y2="3"/>
+              </svg>
+            </button>
+          )}
           <button style={S.tbtn} onClick={()=>setDark(!dark)}>{dark?"☀️":"🌙"}</button>
           {/* Filter status chip — always interactive */}
           {(()=>{
