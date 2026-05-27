@@ -417,18 +417,19 @@ function App(){
     const prev=prevStatusRef.current;
     if(prev===null){prevStatusRef.current=status;return;}
     if(typeof Notification==='undefined'||Notification.permission!=='granted'){prevStatusRef.current=status;return;}
+    const notify=(title,opts)=>{try{new Notification(title,opts)}catch{}};
     if(!prev.enabled&&status.enabled){
       const countries=status.all_countries?"all countries":(status.allowed_countries?.join(", ")||"none");
       const dur=status.expires?`expires ${fmtTime(status.expires)}`:"no timer";
-      new Notification("🔓 CaddyLatch opened",{body:`${countries} — ${dur}`,icon:"/icons/icon-192.png"});
+      notify("🔓 CaddyLatch opened",{body:`${countries} — ${dur}`,icon:"/icons/icon-192.png"});
       timerWarnFiredRef.current=false;
     }else if(prev.enabled&&!status.enabled){
-      new Notification("🔒 CaddyLatch locked",{body:status.disabled_reason||"locked",icon:"/icons/icon-192.png"});
+      notify("🔒 CaddyLatch locked",{body:status.disabled_reason||"locked",icon:"/icons/icon-192.png"});
     }
     if(status.enabled&&status.expires&&!timerWarnFiredRef.current){
       const rem=new Date(status.expires).getTime()-Date.now();
       if(rem>0&&rem<=10*60*1000){
-        new Notification("⏱️ CaddyLatch closing soon",{body:"Less than 10 minutes remaining",icon:"/icons/icon-192.png"});
+        notify("⏱️ CaddyLatch closing soon",{body:"Less than 10 minutes remaining",icon:"/icons/icon-192.png"});
         timerWarnFiredRef.current=true;
       }
     }
@@ -503,19 +504,23 @@ function App(){
       allowed_ip_lists:[...activeIpLists],
       duration_minutes:duration,
     };
-    const r=await api("/enable",{method:"POST",body:JSON.stringify(body)});
-    setActing(false);
-    if(r.error){setProgressModal(m=>m?{...m,phase:'error',error:r.error}:m);}
-    else{setStatus(r);setProgressModal(m=>m?{...m,phase:'caddy',caddySeen:false}:m);}
+    try{
+      const r=await api("/enable",{method:"POST",body:JSON.stringify(body)});
+      setActing(false);
+      if(r.error){setProgressModal(m=>m?{...m,phase:'error',error:r.error}:m);}
+      else{setStatus(r);setProgressModal(m=>m?{...m,phase:'caddy',caddySeen:false}:m);}
+    }catch(e){setActing(false);setProgressModal(m=>m?{...m,phase:'error',error:e.message||"Request failed"}:m);}
   };
 
   const doDisable=async()=>{
     setActing(true);setModal(null);
     setProgressModal({action:'disable',phase:'api',error:null,caddySeen:false,startedAt:Date.now(),debounceMs:(status?.reload_debounce_seconds??5)*1000,wgControl:status?.wg_control});
-    const r=await api("/disable",{method:"POST"});
-    setActing(false);
-    if(r.error){setProgressModal(m=>m?{...m,phase:'error',error:r.error}:m);}
-    else{setStatus(r);setProgressModal(m=>m?{...m,phase:'caddy',caddySeen:false}:m);}
+    try{
+      const r=await api("/disable",{method:"POST"});
+      setActing(false);
+      if(r.error){setProgressModal(m=>m?{...m,phase:'error',error:r.error}:m);}
+      else{setStatus(r);setProgressModal(m=>m?{...m,phase:'caddy',caddySeen:false}:m);}
+    }catch(e){setActing(false);setProgressModal(m=>m?{...m,phase:'error',error:e.message||"Request failed"}:m);}
   };
 
   const doTunnelUp=async()=>{
@@ -1108,7 +1113,10 @@ function App(){
                     </span>
                   </div>
                   {sNotifPerm==="default"&&(
-                    <button style={S.ipAb} onClick={()=>Notification.requestPermission().then(p=>setSNotifPerm(p))}>Enable browser notifications</button>
+                    <button style={S.ipAb} onClick={()=>Notification.requestPermission().then(p=>{setSNotifPerm(p);if(p==='granted'){try{new Notification("🔔 Notifications enabled",{body:"You'll be notified when CaddyLatch opens or closes.",icon:"/icons/icon-192.png"})}catch{}}})}>Enable browser notifications</button>
+                  )}
+                  {sNotifPerm==="granted"&&(
+                    <button style={S.ipAb} onClick={()=>{try{new Notification("🔔 Test notification",{body:"Browser notifications are working.",icon:"/icons/icon-192.png"})}catch{flash("Notification failed — check browser settings","error")}}}>Send test notification</button>
                   )}
                   {sNotifPerm==="denied"&&<div style={{...S.hint,color:"var(--red)"}}>Blocked — change in browser settings</div>}
                 </div>
