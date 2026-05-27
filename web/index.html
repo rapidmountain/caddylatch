@@ -400,6 +400,21 @@ function App(){
     else{setStatus(r);setProgressModal(m=>m?{...m,phase:'caddy',caddySeen:false}:m);}
   };
 
+  const doTunnelUp=async()=>{
+    setModal(null);
+    const r=await api("/tunnel/up",{method:"POST"});
+    if(r.error){flash(r.error,"error")}
+    else{setStatus(s=>s?{...s,wg_up:r.wg_up}:s);flash("Tunnel connected")}
+  };
+  const doTunnelDown=async()=>{
+    setModal(null);
+    const r=await api("/tunnel/down",{method:"POST"});
+    if(r.error){flash(r.error,"error")}
+    else{setStatus(s=>s?{...s,wg_up:r.wg_up}:s);flash("Tunnel disconnected")}
+  };
+  const confirmTunnelUp=()=>setModal({title:"Connect tunnel?",body:"This will start the WireGuard tunnel and enable it to auto-start on boot.",confirm:"Connect",style:{border:"none",background:"var(--grn)",color:"#0a0c10"},action:doTunnelUp});
+  const confirmTunnelDown=()=>setModal({title:"Disconnect tunnel?",body:"This will stop the WireGuard tunnel and remove it from auto-start.",confirm:"Disconnect",style:{borderColor:"var(--red)",background:"var(--red-d)",color:"var(--red)"},action:doTunnelDown});
+
   const doExtend=async(mins)=>{
     setActing(true);
     const r=await api("/extend",{method:"POST",body:JSON.stringify({additional_minutes:mins})});
@@ -543,7 +558,10 @@ function App(){
             {isOpen?"ALLOWING":"BLOCKING"}
           </div>
           {(status?.wg_control==="auto"||status?.wg_control==="manual")&&(
-            <div style={{...S.bdg,...(status.wg_up?S.bdgOn:S.bdgOff)}}>
+            <div
+              style={{...S.bdg,...(status.wg_up?S.bdgOn:S.bdgOff),...(status.wg_control==="manual"?{cursor:"pointer"}:{})}}
+              onClick={status.wg_control==="manual"?(status.wg_up?confirmTunnelDown:confirmTunnelUp):undefined}
+            >
               <div style={{...S.dot,background:status.wg_up?"var(--grn)":"var(--txt3)"}}/>
               {status.wg_up?"TUNNEL UP":"TUNNEL DOWN"}
             </div>
