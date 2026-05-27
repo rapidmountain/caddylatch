@@ -30,7 +30,7 @@ const {useState,useEffect,useCallback,useRef} = React;
 
 // ── Constants ──
 const ALL_COUNTRIES=[["AF","Afghanistan"],["AL","Albania"],["DZ","Algeria"],["AS","American Samoa"],["AD","Andorra"],["AO","Angola"],["AI","Anguilla"],["AQ","Antarctica"],["AG","Antigua and Barbuda"],["AR","Argentina"],["AM","Armenia"],["AW","Aruba"],["AU","Australia"],["AT","Austria"],["AZ","Azerbaijan"],["BS","Bahamas"],["BH","Bahrain"],["BD","Bangladesh"],["BB","Barbados"],["BY","Belarus"],["BE","Belgium"],["BZ","Belize"],["BJ","Benin"],["BM","Bermuda"],["BT","Bhutan"],["BO","Bolivia"],["BA","Bosnia and Herzegovina"],["BW","Botswana"],["BV","Bouvet Island"],["BR","Brazil"],["IO","British Indian Ocean Territory"],["VG","British Virgin Islands"],["BN","Brunei"],["BG","Bulgaria"],["BF","Burkina Faso"],["BI","Burundi"],["KH","Cambodia"],["CM","Cameroon"],["CA","Canada"],["CV","Cape Verde"],["BQ","Caribbean Netherlands"],["KY","Cayman Islands"],["CF","Central African Republic"],["TD","Chad"],["CL","Chile"],["CN","China"],["CX","Christmas Island"],["CC","Cocos (Keeling) Islands"],["CO","Colombia"],["KM","Comoros"],["CD","Congo (DR)"],["CG","Congo (Republic)"],["CK","Cook Islands"],["CR","Costa Rica"],["HR","Croatia"],["CU","Cuba"],["CW","Curaçao"],["CY","Cyprus"],["CZ","Czechia"],["CI","Côte d'Ivoire"],["DK","Denmark"],["DJ","Djibouti"],["DM","Dominica"],["DO","Dominican Republic"],["EC","Ecuador"],["EG","Egypt"],["SV","El Salvador"],["GQ","Equatorial Guinea"],["ER","Eritrea"],["EE","Estonia"],["SZ","Eswatini"],["ET","Ethiopia"],["FK","Falkland Islands"],["FO","Faroe Islands"],["FJ","Fiji"],["FI","Finland"],["FR","France"],["GF","French Guiana"],["PF","French Polynesia"],["TF","French Southern Territories"],["GA","Gabon"],["GM","Gambia"],["GE","Georgia"],["DE","Germany"],["GH","Ghana"],["GI","Gibraltar"],["GR","Greece"],["GL","Greenland"],["GD","Grenada"],["GP","Guadeloupe"],["GU","Guam"],["GT","Guatemala"],["GG","Guernsey"],["GN","Guinea"],["GW","Guinea-Bissau"],["GY","Guyana"],["HT","Haiti"],["HM","Heard & McDonald Islands"],["HN","Honduras"],["HK","Hong Kong"],["HU","Hungary"],["IS","Iceland"],["IN","India"],["ID","Indonesia"],["IR","Iran"],["IQ","Iraq"],["IE","Ireland"],["IM","Isle of Man"],["IL","Israel"],["IT","Italy"],["JM","Jamaica"],["JP","Japan"],["JE","Jersey"],["JO","Jordan"],["KZ","Kazakhstan"],["KE","Kenya"],["KI","Kiribati"],["KW","Kuwait"],["KG","Kyrgyzstan"],["LA","Laos"],["LV","Latvia"],["LB","Lebanon"],["LS","Lesotho"],["LR","Liberia"],["LY","Libya"],["LI","Liechtenstein"],["LT","Lithuania"],["LU","Luxembourg"],["MO","Macao"],["MG","Madagascar"],["MW","Malawi"],["MY","Malaysia"],["MV","Maldives"],["ML","Mali"],["MT","Malta"],["MH","Marshall Islands"],["MQ","Martinique"],["MR","Mauritania"],["MU","Mauritius"],["YT","Mayotte"],["MX","Mexico"],["FM","Micronesia"],["MD","Moldova"],["MC","Monaco"],["MN","Mongolia"],["ME","Montenegro"],["MS","Montserrat"],["MA","Morocco"],["MZ","Mozambique"],["MM","Myanmar"],["NA","Namibia"],["NR","Nauru"],["NP","Nepal"],["NL","Netherlands, Kingdom of the"],["NC","New Caledonia"],["NZ","New Zealand"],["NI","Nicaragua"],["NE","Niger"],["NG","Nigeria"],["NU","Niue"],["NF","Norfolk Island"],["KP","North Korea"],["MK","North Macedonia"],["MP","Northern Mariana Islands"],["NO","Norway"],["OM","Oman"],["PK","Pakistan"],["PW","Palau"],["PS","Palestine"],["PA","Panama"],["PG","Papua New Guinea"],["PY","Paraguay"],["PE","Peru"],["PH","Philippines"],["PN","Pitcairn"],["PL","Poland"],["PT","Portugal"],["PR","Puerto Rico"],["QA","Qatar"],["RO","Romania"],["RU","Russia"],["RW","Rwanda"],["RE","Réunion"],["BL","Saint Barthélemy"],["SH","Saint Helena, Ascension and Tristan da Cunha"],["KN","Saint Kitts and Nevis"],["LC","Saint Lucia"],["MF","Saint Martin"],["PM","Saint Pierre & Miquelon"],["VC","Saint Vincent and the Grenadines"],["WS","Samoa"],["SM","San Marino"],["ST","Sao Tome and Principe"],["SA","Saudi Arabia"],["SN","Senegal"],["RS","Serbia"],["SC","Seychelles"],["SL","Sierra Leone"],["SG","Singapore"],["SX","Sint Maarten"],["SK","Slovakia"],["SI","Slovenia"],["SB","Solomon Islands"],["SO","Somalia"],["ZA","South Africa"],["GS","South Georgia"],["KR","South Korea"],["SS","South Sudan"],["ES","Spain"],["LK","Sri Lanka"],["SD","Sudan"],["SR","Suriname"],["SJ","Svalbard and Jan Mayen"],["SE","Sweden"],["CH","Switzerland"],["SY","Syria"],["TW","Taiwan"],["TJ","Tajikistan"],["TZ","Tanzania"],["TH","Thailand"],["TL","Timor-Leste"],["TG","Togo"],["TK","Tokelau"],["TO","Tonga"],["TT","Trinidad and Tobago"],["TN","Tunisia"],["TM","Turkmenistan"],["TC","Turks and Caicos Islands"],["TV","Tuvalu"],["TR","Türkiye"],["UM","U.S. Minor Outlying Islands"],["VI","U.S. Virgin Islands"],["UG","Uganda"],["UA","Ukraine"],["AE","United Arab Emirates"],["GB","United Kingdom"],["US","United States"],["UY","Uruguay"],["UZ","Uzbekistan"],["VU","Vanuatu"],["VA","Vatican City"],["VE","Venezuela"],["VN","Vietnam"],["WF","Wallis and Futuna"],["EH","Western Sahara"],["YE","Yemen"],["ZM","Zambia"],["ZW","Zimbabwe"],["AX","Åland Islands"]];
-const QUICK_PICKS=["SE","DK","NO","FI","DE","NL","GB"];
+const DEFAULT_QUICK_PICKS=["SE","DK","NO","FI","DE","NL","GB"];
 const DURATION_PRESETS=[{l:"30m",v:30},{l:"1h",v:60},{l:"2h",v:120},{l:"4h",v:240},{l:"8h",v:480}];
 // Per-unit constraints; overall range is 5 minutes to 7 days. f = minutes per unit.
 const UNIT_CFG={minutes:{f:1,min:5,max:10080,step:5},hours:{f:60,min:1,max:168,step:1},days:{f:1440,min:1,max:7,step:1}};
@@ -255,12 +255,37 @@ function App(){
   const[progressModal,setProgressModal]=useState(null);
   const[progressPct,setProgressPct]=useState(0);
   const[countdown,setCountdown]=useState(3);
-  const[view,setView]=useState("main"); // main | lists
+  const[view,setView]=useState("main"); // main | lists | settings
   const[modal,setModal]=useState(null);
   const[hoveredChip,setHoveredChip]=useState(null);
   const toastTm=useRef(null);
   const dismissTm=useRef(null);
   const seeded=useRef(false);
+
+  // Quick picks (loaded from settings, used in main form)
+  const[quickPicks,setQuickPicks]=useState(DEFAULT_QUICK_PICKS);
+
+  // Settings view state
+  const[settingsData,setSettingsData]=useState(null);
+  const[settingsLoading,setSettingsLoading]=useState(false);
+  const[sNtfyUrl,setSNtfyUrl]=useState("");
+  const[sNtfyTopic,setSNtfyTopic]=useState("");
+  const[sNtfyAuthMode,setSNtfyAuthMode]=useState("none"); // none | userpass | token
+  const[sNtfyUser,setSNtfyUser]=useState("");
+  const[sNtfyPass,setSNtfyPass]=useState("");
+  const[sNtfyToken,setSNtfyToken]=useState("");
+  const[sNtfyPriority,setSNtfyPriority]=useState(3);
+  const[sNtfyAlertPriority,setSNtfyAlertPriority]=useState(5);
+  const[sDefaultDur,setSDefaultDur]=useState(120);
+  const[sReminder,setSReminder]=useState(120);
+  const[sTimezone,setSTimezone]=useState("UTC");
+  const[sTimezoneQuery,setSTimezoneQuery]=useState("");
+  const[sShowTzSearch,setSShowTzSearch]=useState(false);
+  const[sQuickPicks,setSQuickPicks]=useState(DEFAULT_QUICK_PICKS);
+  const[sQpSearch,setSQpSearch]=useState("");
+  const[sShowQpSearch,setSShowQpSearch]=useState(false);
+  const[sNotifPerm,setSNotifPerm]=useState(()=>(typeof Notification!=='undefined'?Notification.permission:'unsupported'));
+  const[sTestingNtfy,setSTestingNtfy]=useState(false);
 
   // Form state
   const[geoRestriction,setGeoRestriction]=useState(false);
@@ -381,8 +406,54 @@ function App(){
     const allC=!!(status.enabled?status.all_countries:status.last_all_countries);
     setGeoRestriction(!allC);
     setSelCountries(new Set(cs));
-    setExtraCountries(new Set(cs.filter(c=>!QUICK_PICKS.includes(c))));
+    setExtraCountries(new Set(cs.filter(c=>!quickPicks.includes(c))));
   },[status]);
+
+  // Settings: load once on mount to seed quick picks, then fully on view entry
+  const loadSettings=useCallback(async()=>{
+    setSettingsLoading(true);
+    try{
+      const d=await api("/settings");
+      setSettingsData(d);
+      const qp=(d.quick_pick_countries||"").split(",").map(c=>c.trim()).filter(Boolean);
+      const picks=qp.length?qp:DEFAULT_QUICK_PICKS;
+      setQuickPicks(picks);
+      setSQuickPicks(picks);
+      setSNtfyUrl(d.ntfy_url||"");
+      setSNtfyTopic(d.ntfy_topic||"");
+      if(d.ntfy_token)setSNtfyAuthMode("token");
+      else if(d.ntfy_user)setSNtfyAuthMode("userpass");
+      else setSNtfyAuthMode("none");
+      setSNtfyUser(d.ntfy_user||"");
+      setSNtfyPass(d.ntfy_pass||"");
+      setSNtfyToken(d.ntfy_token||"");
+      setSNtfyPriority(d.ntfy_priority||3);
+      setSNtfyAlertPriority(d.ntfy_alert_priority||5);
+      setSDefaultDur(d.default_duration_minutes||120);
+      setSReminder(d.reminder_interval_minutes??0);
+      setSTimezone(d.display_timezone||"UTC");
+    }catch(e){flash("Failed to load settings","error");}
+    finally{setSettingsLoading(false);}
+  },[]);
+  useEffect(()=>{api("/settings").then(d=>{const qp=(d.quick_pick_countries||"").split(",").map(c=>c.trim()).filter(Boolean);if(qp.length)setQuickPicks(qp)}).catch(()=>{})},[]);
+  useEffect(()=>{if(view==="settings")loadSettings();},[view,loadSettings]);
+
+  const saveSetting=async(key,value)=>{
+    const r=await api("/settings",{method:"PUT",body:JSON.stringify({[key]:value})});
+    if(r.error)flash(r.error,"error");else flash("Saved");
+  };
+  const handleAuthModeChange=async(mode)=>{
+    setSNtfyAuthMode(mode);
+    if(mode==="none"){setSNtfyUser("");setSNtfyPass("");setSNtfyToken("");await api("/settings",{method:"PUT",body:JSON.stringify({ntfy_user:"",ntfy_pass:"",ntfy_token:""})});}
+    else if(mode==="userpass"){setSNtfyToken("");await api("/settings",{method:"PUT",body:JSON.stringify({ntfy_token:""})});}
+    else{setSNtfyUser("");setSNtfyPass("");await api("/settings",{method:"PUT",body:JSON.stringify({ntfy_user:"",ntfy_pass:""})});}
+  };
+  const testNtfy=async()=>{
+    setSTestingNtfy(true);
+    const r=await api("/test-ntfy",{method:"POST"});
+    setSTestingNtfy(false);
+    if(r.error)flash(r.error,"error");else flash("Test notification sent");
+  };
 
   // Duplicate IP check
   const ipExistsIn=(ip)=>{
@@ -535,7 +606,7 @@ function App(){
   const isOpen=status?.enabled;
 
   const q=countryQuery.toLowerCase();
-  const countryResults=ALL_COUNTRIES.filter(([c,n])=>!QUICK_PICKS.includes(c)&&!selCountries.has(c)&&!extraCountries.has(c)&&(n.toLowerCase().includes(q)||c.toLowerCase().includes(q)));
+  const countryResults=ALL_COUNTRIES.filter(([c,n])=>!quickPicks.includes(c)&&!selCountries.has(c)&&!extraCountries.has(c)&&(n.toLowerCase().includes(q)||c.toLowerCase().includes(q)));
 
   if(loading)return <div style={{...S.app,textAlign:"center",paddingTop:80,color:"var(--txt3)"}}>Connecting to CaddyLatch...</div>;
 
@@ -590,6 +661,7 @@ function App(){
               </svg>
             </button>
           )}
+          <button style={{...S.tbtn,...(view==="settings"?{background:"var(--bg3)",borderColor:"var(--bdr2)"}:{})}} onClick={()=>setView(v=>v==="settings"?"main":"settings")} title="Settings">⚙</button>
           <button style={S.tbtn} onClick={()=>setDark(!dark)}>{dark?"☀️":"🌙"}</button>
           {/* Filter status chip — always interactive */}
           {(()=>{
@@ -676,12 +748,12 @@ function App(){
                 {geoRestriction&&<>
                   <div style={{...S.lb,fontSize:10,margin:"4px 0 8px"}}>Quick picks</div>
                   <div style={S.cps}>
-                    {QUICK_PICKS.map(c=>(
+                    {quickPicks.map(c=>(
                       <Chip key={c} style={selCountries.has(c)?S.cpB:S.cpO} onClick={()=>toggleCountry(c)}>
                         {gf(c)} {c} {selCountries.has(c)&&<span style={{opacity:.5,fontSize:11}}>✕</span>}
                       </Chip>
                     ))}
-                    {[...extraCountries].filter(c=>!QUICK_PICKS.includes(c)).map(c=>(
+                    {[...extraCountries].filter(c=>!quickPicks.includes(c)).map(c=>(
                       <Chip key={c} style={S.cpB} onClick={()=>removeExtraCountry(c)}>
                         {gf(c)} {c} <span style={{opacity:.5,fontSize:11}}>✕</span>
                       </Chip>
@@ -887,6 +959,142 @@ function App(){
                   saveList(newListName.trim(),newListIps);setNewListName("");setNewListIps([]);
                 }}>Create list</button>
               </div>
+            </div>
+          )}
+
+          {/* ── SETTINGS VIEW ── */}
+          {view==="settings"&&(
+            <div className="cd" style={S.cd}>
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:20}}>
+                <div style={S.lb}>Settings</div>
+                <Chip style={{...S.cpO,fontSize:11,padding:"4px 10px"}} onClick={()=>setView("main")}>← Back</Chip>
+              </div>
+              {settingsLoading&&<div style={{...S.hint,textAlign:"center",padding:"20px 0"}}>Loading...</div>}
+              {!settingsLoading&&settingsData&&(<>
+                {/* Notifications */}
+                <div style={S.fg}>
+                  <div style={S.lb}>Notifications (ntfy)</div>
+                  <div style={{...S.lb,fontSize:10,marginBottom:4}}>Server URL</div>
+                  <input style={{...S.ipIn,fontFamily:"var(--sans)",width:"100%",marginBottom:10}} placeholder="https://ntfy.sh" value={sNtfyUrl} onChange={e=>setSNtfyUrl(e.target.value)} onBlur={()=>saveSetting("ntfy_url",sNtfyUrl)}/>
+                  <div style={{...S.lb,fontSize:10,marginBottom:4}}>Topic</div>
+                  <input style={{...S.ipIn,fontFamily:"var(--sans)",width:"100%",marginBottom:10}} placeholder="caddylatch" value={sNtfyTopic} onChange={e=>setSNtfyTopic(e.target.value)} onBlur={()=>saveSetting("ntfy_topic",sNtfyTopic)}/>
+                  <div style={{...S.lb,fontSize:10,marginBottom:6}}>Authentication</div>
+                  <div style={{display:"flex",gap:6,marginBottom:10}}>
+                    {[["none","None"],["userpass","User/Password"],["token","Token"]].map(([m,l])=>(
+                      <button key={m} style={{flex:1,padding:"7px 4px",borderRadius:6,font:"500 12px var(--sans)",cursor:"pointer",border:"1px solid",borderColor:sNtfyAuthMode===m?"transparent":"var(--bdr)",background:sNtfyAuthMode===m?"var(--blu)":"var(--bg4)",color:sNtfyAuthMode===m?"#0a0c10":"var(--txt2)",transition:"all .15s"}} onClick={()=>handleAuthModeChange(m)}>{l}</button>
+                    ))}
+                  </div>
+                  {sNtfyAuthMode==="userpass"&&(<>
+                    <input type="password" style={{...S.ipIn,fontFamily:"var(--sans)",width:"100%",marginBottom:8}} placeholder="Username" value={sNtfyUser} onChange={e=>setSNtfyUser(e.target.value)} onBlur={()=>saveSetting("ntfy_user",sNtfyUser)}/>
+                    <input type="password" style={{...S.ipIn,fontFamily:"var(--sans)",width:"100%",marginBottom:10}} placeholder="Password" value={sNtfyPass} onChange={e=>setSNtfyPass(e.target.value)} onBlur={()=>saveSetting("ntfy_pass",sNtfyPass)}/>
+                  </>)}
+                  {sNtfyAuthMode==="token"&&(
+                    <input type="password" style={{...S.ipIn,fontFamily:"var(--sans)",width:"100%",marginBottom:10}} placeholder="Token" value={sNtfyToken} onChange={e=>setSNtfyToken(e.target.value)} onBlur={()=>saveSetting("ntfy_token",sNtfyToken)}/>
+                  )}
+                  <div style={{...S.lb,fontSize:10,marginBottom:6}}>Priority</div>
+                  <div style={{display:"flex",gap:10,alignItems:"center",marginBottom:10}}>
+                    <span style={{fontSize:12,color:"var(--txt2)"}}>Normal</span>
+                    <select style={S.durSel} value={sNtfyPriority} onChange={e=>{setSNtfyPriority(+e.target.value);saveSetting("ntfy_priority",+e.target.value)}}>
+                      {[1,2,3,4,5].map(n=><option key={n} value={n}>{n}</option>)}
+                    </select>
+                    <span style={{fontSize:12,color:"var(--txt2)"}}>Alert</span>
+                    <select style={S.durSel} value={sNtfyAlertPriority} onChange={e=>{setSNtfyAlertPriority(+e.target.value);saveSetting("ntfy_alert_priority",+e.target.value)}}>
+                      {[1,2,3,4,5].map(n=><option key={n} value={n}>{n}</option>)}
+                    </select>
+                  </div>
+                  <button style={S.ipAb} onClick={testNtfy} disabled={sTestingNtfy}>{sTestingNtfy?"Sending...":"Send test notification"}</button>
+                </div>
+
+                {/* Timer defaults */}
+                <div style={S.fg}>
+                  <div style={S.lb}>Timer defaults</div>
+                  <div style={{...S.lb,fontSize:10,marginBottom:6}}>Default duration</div>
+                  <div style={S.dg}>
+                    {DURATION_PRESETS.map(p=>(
+                      <div key={p.v} style={{...S.db,...(sDefaultDur===p.v?S.dbA:{})}} onClick={()=>{setSDefaultDur(p.v);saveSetting("default_duration_minutes",p.v)}}>{p.l}</div>
+                    ))}
+                    <div style={{...S.db,...(!DURATION_PRESETS.some(p=>p.v===sDefaultDur)?S.dbA:{})}} onClick={()=>openDurModal(m=>{setSDefaultDur(m);saveSetting("default_duration_minutes",m)},sDefaultDur,"Default duration","Between 5 minutes and 7 days.")}>{DURATION_PRESETS.some(p=>p.v===sDefaultDur)?"Other":fmtDur(sDefaultDur)}</div>
+                  </div>
+                  <div style={{...S.lb,fontSize:10,marginTop:14,marginBottom:6}}>Reminder interval</div>
+                  <div style={{display:"flex",alignItems:"center",gap:8}}>
+                    <input type="number" style={{...S.durIn,maxWidth:100}} min={0} step={1} value={sReminder} onChange={e=>setSReminder(e.target.value)} onBlur={()=>saveSetting("reminder_interval_minutes",Math.max(0,parseInt(sReminder)||0))}/>
+                    <span style={{fontSize:12,color:"var(--txt2)"}}>minutes (0 = disabled)</span>
+                  </div>
+                </div>
+
+                {/* Display */}
+                <div style={S.fg}>
+                  <div style={S.lb}>Display</div>
+                  <div style={{...S.lb,fontSize:10,marginBottom:6}}>Timezone</div>
+                  <div style={{position:"relative"}}>
+                    <input style={{...S.srchIn}} placeholder="Search timezones..." value={sShowTzSearch?sTimezoneQuery:sTimezone}
+                      onFocus={()=>{setSShowTzSearch(true);setSTimezoneQuery("")}}
+                      onChange={e=>setSTimezoneQuery(e.target.value)}
+                      onBlur={()=>setTimeout(()=>setSShowTzSearch(false),150)}/>
+                    {sShowTzSearch&&(
+                      <div style={{...S.sr,position:"absolute",top:"100%",left:0,right:0,zIndex:10,maxHeight:200}}>
+                        {(settingsData.available_timezones||[]).filter(tz=>tz.toLowerCase().includes(sTimezoneQuery.toLowerCase())).slice(0,30).map(tz=>(
+                          <div key={tz} style={S.srItem} onMouseDown={e=>{e.preventDefault();setSTimezone(tz);setSTimezoneQuery("");setSShowTzSearch(false);saveSetting("display_timezone",tz)}} onMouseOver={e=>e.currentTarget.style.background="var(--bg3)"} onMouseOut={e=>e.currentTarget.style.background=""}>{tz}</div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                {/* Quick pick countries */}
+                <div style={S.fg}>
+                  <div style={S.lb}>Quick pick countries</div>
+                  <div style={S.cps}>
+                    {sQuickPicks.map(c=>(
+                      <Chip key={c} style={S.cpB} onClick={async()=>{
+                        const next=sQuickPicks.filter(x=>x!==c);
+                        setSQuickPicks(next);setQuickPicks(next);
+                        await saveSetting("quick_pick_countries",next.join(","));
+                      }}>{gf(c)} {c} <span style={{opacity:.5,fontSize:11}}>✕</span></Chip>
+                    ))}
+                    {sQuickPicks.length<12&&<Chip style={S.cpO} onClick={()=>{setSShowQpSearch(!sShowQpSearch);setSQpSearch("")}}>+ Add</Chip>}
+                  </div>
+                  {sShowQpSearch&&(
+                    <div style={S.srch}>
+                      <input style={S.srchIn} placeholder="Search countries..." value={sQpSearch} onChange={e=>setSQpSearch(e.target.value)} autoFocus/>
+                      <div style={S.sr}>
+                        {ALL_COUNTRIES.filter(([c,n])=>!sQuickPicks.includes(c)&&(n.toLowerCase().includes(sQpSearch.toLowerCase())||c.toLowerCase().includes(sQpSearch.toLowerCase()))).slice(0,20).map(([c,n])=>(
+                          <div key={c} style={S.srItem} onClick={async()=>{
+                            const next=[...sQuickPicks,c];
+                            setSQuickPicks(next);setQuickPicks(next);
+                            setSShowQpSearch(false);setSQpSearch("");
+                            await saveSetting("quick_pick_countries",next.join(","));
+                          }} onMouseOver={e=>e.currentTarget.style.background="var(--bg3)"} onMouseOut={e=>e.currentTarget.style.background=""}>{gf(c)} {c} — {n}</div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                  {sQuickPicks.length>=12&&<div style={S.hint}>Maximum 12 quick picks.</div>}
+                </div>
+
+                {/* Browser notifications */}
+                <div style={S.fg}>
+                  <div style={S.lb}>Browser notifications</div>
+                  <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:6}}>
+                    <span style={{fontSize:13,color:"var(--txt2)"}}>Status:</span>
+                    <span style={{fontSize:13,fontWeight:600,color:sNotifPerm==="granted"?"var(--grn)":sNotifPerm==="denied"?"var(--red)":"var(--txt2)"}}>
+                      {sNotifPerm==="granted"?"Allowed":sNotifPerm==="denied"?"Denied":sNotifPerm==="unsupported"?"Not supported":"Not set"}
+                    </span>
+                  </div>
+                  {sNotifPerm==="default"&&(
+                    <button style={S.ipAb} onClick={()=>Notification.requestPermission().then(p=>setSNotifPerm(p))}>Enable browser notifications</button>
+                  )}
+                  {sNotifPerm==="denied"&&<div style={{...S.hint,color:"var(--red)"}}>Blocked — change in browser settings</div>}
+                </div>
+
+                {/* About */}
+                <div style={{...S.fg,marginBottom:0}}>
+                  <div style={S.lb}>About</div>
+                  <div style={S.si}><div style={S.sl}>Version</div><div style={S.sv}>{status?.version||"—"}</div></div>
+                  <div style={S.si}><div style={S.sl}>Agent uptime</div><div style={S.sv}>{stats?fmtUptime(stats.agent_uptime_seconds):"—"}</div></div>
+                  <div style={{...S.si,marginBottom:0}}><div style={S.sl}>Config</div><div style={{...S.sv,fontSize:11,color:"var(--txt3)"}}>/etc/caddylatch/caddylatch.conf</div></div>
+                </div>
+              </>)}
             </div>
           )}
 
