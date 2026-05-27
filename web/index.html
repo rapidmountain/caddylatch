@@ -239,7 +239,7 @@ function ProgressModal({modal,progressPct,countdown,onDismiss}){
 
 // ── Main App ──
 function App(){
-  const[dark,setDark]=useState(true);
+  const[dark,setDark]=useState(()=>{try{return localStorage.getItem('cl-theme')!=='light'}catch{return true}});
   const[status,setStatus]=useState(null);
   const[stats,setStats]=useState(null);
   const[ipLists,setIpLists]=useState({});
@@ -348,7 +348,7 @@ function App(){
   },[]);
 
   // Theme
-  useEffect(()=>{document.documentElement.setAttribute("data-theme",dark?"dark":"light")},[dark]);
+  useEffect(()=>{document.documentElement.setAttribute("data-theme",dark?"dark":"light");try{localStorage.setItem('cl-theme',dark?'dark':'light')}catch{}},[dark]);
 
   // Seed the country form once from the last-used config (live when open,
   // otherwise the persisted last_countries) so it reflects the previous
