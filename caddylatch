@@ -661,14 +661,15 @@ class LatchController:
             # 1. Write filter
             write_filter_open(self.cfg, allowed_countries, all_ips, all_countries)
 
-            # 2. Start WireGuard
-            if not wg_up(wg_iface):
-                write_filter_locked(self.cfg)
-                self._schedule_reload()
-                send_ntfy(self.cfg, "⚠️ CaddyLatch — FAILED to open",
-                          "WireGuard failed to start, filters rolled back",
-                          int(self.cfg["ntfy_alert_priority"]))
-                return {"error": "WireGuard failed to start"}
+            # 2. Start WireGuard (auto mode only)
+            if self.cfg.get("wg_control") == "auto":
+                if not wg_up(wg_iface):
+                    write_filter_locked(self.cfg)
+                    self._schedule_reload()
+                    send_ntfy(self.cfg, "⚠️ CaddyLatch — FAILED to open",
+                              "WireGuard failed to start, filters rolled back",
+                              int(self.cfg["ntfy_alert_priority"]))
+                    return {"error": "WireGuard failed to start"}
 
             # 3. Persist state
             new_state = self.state.update({
@@ -723,10 +724,13 @@ class LatchController:
         is_backstop = reason not in normal_reasons
         priority = int(self.cfg["ntfy_alert_priority"]) if is_backstop else int(self.cfg["ntfy_priority"])
         title = "🔒 CaddyLatch LOCKED (backstop)" if is_backstop else "🔒 CaddyLatch LOCKED"
-        send_ntfy(self.cfg, title, f"Reason: {reason}", priority)
+        wg_managed = self.cfg.get("wg_control") == "auto"
+        msg = f"Reason: {reason}" if wg_managed else f"Reason: {reason} (tunnel remains up)"
+        send_ntfy(self.cfg, title, msg, priority)
 
-        # 2. Stop WireGuard
-        wg_down(wg_iface)
+        # 2. Stop WireGuard (auto mode only)
+        if wg_managed:
+            wg_down(wg_iface)
 
         # 3. Lock filter
         write_filter_locked(self.cfg)
