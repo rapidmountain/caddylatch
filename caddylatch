@@ -567,17 +567,21 @@ def write_filter_open(cfg: dict, countries: list[str], ips: list[str],
                  f"countries={countries}, ips={ips}")
 
 
-def reload_caddy(cmd: str) -> bool:
+def reload_caddy(cmd: str) -> tuple[bool, str]:
+    """Reload Caddy. Returns (ok, detail); detail explains the failure on error."""
     logging.info("Reloading Caddy")
     try:
         r = subprocess.run(cmd.split(), capture_output=True, text=True, timeout=SUBPROCESS_TIMEOUT)
         if r.returncode != 0:
-            logging.error(f"Caddy reload failed: {r.stderr}")
-            return False
-        return True
+            detail = (r.stderr or r.stdout or "").strip() or f"exit code {r.returncode}"
+            logging.error(f"Caddy reload failed (exit {r.returncode}): {detail}")
+            return False, detail
+        return True, ""
     except subprocess.TimeoutExpired:
-        logging.error(f"Caddy reload timed out after {SUBPROCESS_TIMEOUT}s")
-        return False
+        detail = (f"reload timed out after {SUBPROCESS_TIMEOUT}s — Caddy may be stuck "
+                  f"reloading; a full restart (systemctl restart caddy) may be required")
+        logging.error(f"Caddy reload failed: {detail}")
+        return False, detail
 
 
 # ---------------------------------------------------------------------------
@@ -766,13 +770,14 @@ class LatchController:
         """Called by the debounce timer — performs the actual Caddy reload."""
         with self._reload_lock:
             self._reload_timer = None
-        if reload_caddy(self.cfg["caddy_reload_cmd"]):
+        ok, detail = reload_caddy(self.cfg["caddy_reload_cmd"])
+        if ok:
             self._caddy_synced = True
             self._caddy_error = None
         else:
-            self._caddy_error = "Caddy reload failed — check service status"
+            self._caddy_error = f"Caddy reload failed: {detail}"
             send_ntfy(self.cfg, "⚠️ CaddyLatch — Caddy reload failed",
-                      "Check Caddy service status. Manual restart may be required.",
+                      f"Caddy did not reload. {detail}",
                       int(self.cfg["ntfy_alert_priority"]))
 
     def enable(self, allowed_ips: list[str], allowed_ip_lists: list[str],
