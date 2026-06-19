@@ -100,6 +100,43 @@ Creates the list if it doesn't exist, updates it if it does.
 - **Double kill switch** — WireGuard down AND Caddy filters locked
 - **Notifications** — ntfy on every state change + periodic reminders
 - **Healthchecks.io** — dead man's switch
+- **Reload self-heal** — if a Caddy reload hangs (times out), CaddyLatch escalates to `caddy_restart_cmd` (`systemctl restart caddy`) automatically and alerts via ntfy
+
+## Recovery
+
+If CaddyLatch is stuck latched (all filtered sites returning empty/aborted responses), here is how to get back to normal — least invasive first.
+
+**Open / unlatch (normal path).** Use the web UI's open action, or the API:
+
+```bash
+# Return to your normal geo-filtered state, no auto-close timer:
+curl -X POST http://<listen_host>:8450/enable \
+  -H 'Content-Type: application/json' \
+  -d '{"allowed_countries":["SE","DK"],"duration_minutes":0}'
+```
+
+**Emergency full passthrough.** Opens with no filtering at all (writes a no-op `(geo_filter)` — all traffic allowed):
+
+```bash
+curl -X POST http://<listen_host>:8450/enable \
+  -H 'Content-Type: application/json' \
+  -d '{"all_countries":true,"duration_minutes":0}'
+```
+
+> `duration_minutes: 0` means **no auto-close timer** — important for always-public sites, otherwise the timer re-locks them.
+
+**Hung Caddy reload.** CaddyLatch self-heals (see above) — a timed-out reload escalates to a restart automatically. To clear one by hand: `sudo systemctl restart caddy` (a plain reload may re-hang on some setups, e.g. Caddy + crowdsec).
+
+**Last resort — daemon misbehaving.** CaddyLatch owns and overwrites the filter file, so manual edits are reverted on its next run. To take control:
+
+```bash
+sudo systemctl stop caddylatch
+# write a passthrough filter so Caddy serves normally:
+printf '(geo_filter) {\n    # passthrough — all traffic allowed\n}\n' | sudo tee /etc/caddy/filter-caddylatch.caddy
+sudo systemctl restart caddy
+```
+
+> **Control-plane safety:** never put `import geo_filter` on the CaddyLatch control-plane site (e.g. `caddylatch.ashnet-home.net`). Keep it on an internal-only matcher (loopback + Tailscale) so the latch can never lock you out of CaddyLatch itself.
 
 ## Uninstall
 

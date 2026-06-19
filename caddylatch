@@ -68,6 +68,7 @@ DEFAULT_CONFIG = {
     "caddy_filter_file": "/etc/caddy/filter-caddylatch.caddy",
     "geoip_db_path": "/var/lib/GeoIP/GeoLite2-Country.mmdb",
     "caddy_reload_cmd": "systemctl reload caddy",
+    "caddy_restart_cmd": "systemctl restart caddy",
     "wg_peer_ip": "10.100.0.1",
     "default_duration_minutes": "120",
     "reload_debounce_seconds": "5",
@@ -567,20 +568,40 @@ def write_filter_open(cfg: dict, countries: list[str], ips: list[str],
                  f"countries={countries}, ips={ips}")
 
 
-def reload_caddy(cmd: str) -> tuple[bool, str]:
-    """Reload Caddy. Returns (ok, detail); detail explains the failure on error."""
+def reload_caddy(cmd: str) -> tuple[bool, str, bool]:
+    """Reload Caddy. Returns (ok, detail, timed_out).
+
+    timed_out distinguishes a hung reload (recoverable via a full restart) from
+    a config/exit error (a restart would not help and could worsen an outage).
+    """
     logging.info("Reloading Caddy")
     try:
         r = subprocess.run(cmd.split(), capture_output=True, text=True, timeout=SUBPROCESS_TIMEOUT)
         if r.returncode != 0:
             detail = (r.stderr or r.stdout or "").strip() or f"exit code {r.returncode}"
             logging.error(f"Caddy reload failed (exit {r.returncode}): {detail}")
+            return False, detail, False
+        return True, "", False
+    except subprocess.TimeoutExpired:
+        detail = f"reload timed out after {SUBPROCESS_TIMEOUT}s"
+        logging.error(f"Caddy reload failed: {detail}")
+        return False, detail, True
+
+
+def restart_caddy(cmd: str) -> tuple[bool, str]:
+    """Full restart of Caddy — recovery path when an in-place reload hangs.
+    Returns (ok, detail)."""
+    logging.warning("Restarting Caddy to recover from a hung reload")
+    try:
+        r = subprocess.run(cmd.split(), capture_output=True, text=True, timeout=SUBPROCESS_TIMEOUT)
+        if r.returncode != 0:
+            detail = (r.stderr or r.stdout or "").strip() or f"exit code {r.returncode}"
+            logging.error(f"Caddy restart failed (exit {r.returncode}): {detail}")
             return False, detail
         return True, ""
     except subprocess.TimeoutExpired:
-        detail = (f"reload timed out after {SUBPROCESS_TIMEOUT}s — Caddy may be stuck "
-                  f"reloading; a full restart (systemctl restart caddy) may be required")
-        logging.error(f"Caddy reload failed: {detail}")
+        detail = f"restart timed out after {SUBPROCESS_TIMEOUT}s"
+        logging.error(f"Caddy restart failed: {detail}")
         return False, detail
 
 
@@ -770,15 +791,31 @@ class LatchController:
         """Called by the debounce timer — performs the actual Caddy reload."""
         with self._reload_lock:
             self._reload_timer = None
-        ok, detail = reload_caddy(self.cfg["caddy_reload_cmd"])
+        ok, detail, timed_out = reload_caddy(self.cfg["caddy_reload_cmd"])
         if ok:
             self._caddy_synced = True
             self._caddy_error = None
-        else:
-            self._caddy_error = f"Caddy reload failed: {detail}"
-            send_ntfy(self.cfg, "⚠️ CaddyLatch — Caddy reload failed",
-                      f"Caddy did not reload. {detail}",
-                      int(self.cfg["ntfy_alert_priority"]))
+            return
+
+        if timed_out:
+            # Live reload hung (e.g. Caddy + crowdsec deadlock). Recover with a
+            # full restart, which clears it. Only the timeout path falls back —
+            # a config error would not be helped by a restart.
+            r_ok, r_detail = restart_caddy(self.cfg["caddy_restart_cmd"])
+            if r_ok:
+                self._caddy_synced = True
+                self._caddy_error = None
+                send_ntfy(self.cfg, "⚠️ CaddyLatch — Caddy restarted to recover reload",
+                          f"Caddy reload hung ({detail}); a full restart recovered it. "
+                          f"Recurring hangs may mean Caddy/crowdsec needs attention.",
+                          int(self.cfg["ntfy_alert_priority"]))
+                return
+            detail = f"{detail}; restart fallback also failed: {r_detail}"
+
+        self._caddy_error = f"Caddy reload failed: {detail}"
+        send_ntfy(self.cfg, "⚠️ CaddyLatch — Caddy reload failed",
+                  f"Caddy did not reload. {detail}",
+                  int(self.cfg["ntfy_alert_priority"]))
 
     def enable(self, allowed_ips: list[str], allowed_ip_lists: list[str],
                allowed_countries: list[str], all_countries: bool = False,

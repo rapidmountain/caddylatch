@@ -32,6 +32,11 @@ geoip_db_path=/var/lib/GeoIP/GeoLite2-Country.mmdb
 # Command to reload Caddy after filter changes
 caddy_reload_cmd=systemctl reload caddy
 
+# Recovery command used only when a reload hangs (times out). Some setups
+# (e.g. Caddy + crowdsec) can deadlock on an in-place reload; a full restart
+# clears it. CaddyLatch falls back to this automatically and sends an alert.
+caddy_restart_cmd=systemctl restart caddy
+
 # Seconds to wait before sending a Caddy reload after a state change.
 # Rapid changes within this window are collapsed into a single reload.
 # Also used as the UI cooldown after open/close actions.
